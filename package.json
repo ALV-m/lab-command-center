@@ -1,0 +1,23 @@
+{
+  "name": "lab-command-center",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "start": "node artifacts/api-server/dist/index.mjs",
+    "dev": "pnpm --filter @workspace/api-server run dev",
+    "db:bootstrap": "pnpm --filter @workspace/scripts run bootstrap",
+    "db:seed": "pnpm --filter @workspace/scripts run seed",
+    "db:setup": "pnpm run db:bootstrap && pnpm run db:seed"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.6",
+    "typescript": "~5.9.3"
+  }
+}

@@ -1,0 +1,31 @@
+# Lab Command Center — Render blueprint
+# Deploys the Express API + React dashboard together with a managed PostgreSQL.
+# See https://render.com/docs/blueprint-spec
+databases:
+  - name: lab-command-center-db
+    plan: free
+    databaseName: lab_command_center
+
+services:
+  - type: web
+    name: lab-command-center
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: corepack enable && corepack prepare pnpm@11.11.0 --activate && pnpm install && pnpm run db:setup && pnpm run build
+    startCommand: node artifacts/api-server/dist/index.mjs
+    healthCheckPath: /api/healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.15.0
+      - key: PNPM_VERSION
+        value: 11.11.0
+      - key: PORT
+        value: 10000
+      - key: BASE_PATH
+        value: /
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lab-command-center-db
+          property: connectionString
