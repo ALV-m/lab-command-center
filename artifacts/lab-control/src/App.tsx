@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Monitor,
   Server,
+  ShieldAlert,
   ShieldCheck,
   Users,
 } from "lucide-react";
@@ -19,9 +20,11 @@ import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Agents from "@/pages/agents";
 import Alerts from "@/pages/alerts";
+import Antivirus from "@/pages/antivirus";
 import Computers from "@/pages/computers";
 import Dashboard from "@/pages/dashboard";
 import Events from "@/pages/events";
+import Firewall from "@/pages/firewall";
 import NotFound from "@/pages/not-found";
 import Peripherals from "@/pages/peripherals";
 import Reports from "@/pages/reports";
@@ -38,17 +41,39 @@ const queryClient = new QueryClient({
   },
 });
 
-const NAV_ITEMS = [
-  { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/computers", label: "Computers", icon: Monitor },
-  { href: "/alerts", label: "Alerts", icon: AlertTriangle },
-  { href: "/usb-policies", label: "USB Policy", icon: ShieldCheck },
-  { href: "/peripherals", label: "Peripherals", icon: Cable },
-  { href: "/sessions", label: "Sessions", icon: Users },
-  { href: "/reports", label: "Reports", icon: FileText },
-  { href: "/events", label: "Events", icon: Activity },
-  { href: "/agents", label: "Agent", icon: Download },
+const NAV_SECTIONS: Array<{
+  label: string | null;
+  items: Array<{ href: string; label: string; icon: typeof Server }>;
+}> = [
+  {
+    label: null,
+    items: [
+      { href: "/", label: "Overview", icon: LayoutDashboard },
+      { href: "/computers", label: "Computers", icon: Monitor },
+      { href: "/alerts", label: "Alerts", icon: AlertTriangle },
+      { href: "/usb-policies", label: "USB Policy", icon: ShieldCheck },
+      { href: "/peripherals", label: "Peripherals", icon: Cable },
+      { href: "/sessions", label: "Sessions", icon: Users },
+    ],
+  },
+  {
+    label: "Security",
+    items: [
+      { href: "/antivirus", label: "Antivirus", icon: ShieldAlert },
+      { href: "/firewall", label: "Firewall", icon: ShieldCheck },
+    ],
+  },
+  {
+    label: null,
+    items: [
+      { href: "/reports", label: "Reports", icon: FileText },
+      { href: "/events", label: "Events", icon: Activity },
+      { href: "/agents", label: "Agent", icon: Download },
+    ],
+  },
 ];
+
+const NAV_ITEMS = NAV_SECTIONS.flatMap((section) => section.items);
 
 function LiveClock() {
   const [now, setNow] = useState(() => new Date());
@@ -76,29 +101,38 @@ function Brand() {
 function Sidebar() {
   const [location] = useLocation();
   return (
-    <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r bg-card md:flex">
+    <aside className="no-print sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r bg-card md:flex">
       <div className="flex h-16 items-center border-b px-4">
         <Brand />
       </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {NAV_ITEMS.map((item) => {
-          const active = location === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                active
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              )}
-            >
-              <item.icon className="size-4" />
-              {item.label}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 space-y-4 overflow-y-auto p-3">
+        {NAV_SECTIONS.map((section, index) => (
+          <div key={index} className="space-y-1">
+            {section.label ? (
+              <p className="px-3 pt-2 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                {section.label}
+              </p>
+            ) : null}
+            {section.items.map((item) => {
+              const active = location === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    active
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                  )}
+                >
+                  <item.icon className="size-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
       <div className="border-t p-4 text-xs text-muted-foreground">
         <LiveClock />
@@ -110,7 +144,7 @@ function Sidebar() {
 function MobileNav() {
   const [location] = useLocation();
   return (
-    <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-background px-4 py-3 md:hidden">
+    <div className="no-print sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-background px-4 py-3 md:hidden">
       <Brand />
       <nav className="flex gap-1">
         {NAV_ITEMS.map((item) => {
@@ -150,6 +184,8 @@ function Layout() {
               <Route path="/alerts" component={Alerts} />
               <Route path="/usb-policies" component={UsbPolicies} />
               <Route path="/peripherals" component={Peripherals} />
+              <Route path="/antivirus" component={Antivirus} />
+              <Route path="/firewall" component={Firewall} />
               <Route path="/sessions" component={Sessions} />
               <Route path="/reports" component={Reports} />
               <Route path="/events" component={Events} />

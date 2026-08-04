@@ -61,6 +61,7 @@ const mapComputer = (computer: typeof computersTable.$inferSelect) => ({
   avEnabled: computer.avEnabled,
   avSignature: computer.avSignature,
   avLastScanAt: iso(computer.avLastScanAt),
+  avScanState: computer.avScanState,
   firewallEnabled: computer.firewallEnabled,
   firewallProfiles: computer.firewallProfiles,
 });

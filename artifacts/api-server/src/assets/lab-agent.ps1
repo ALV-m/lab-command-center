@@ -3,14 +3,20 @@
 #
 # Zero-dependency agent that runs on each lab PC. It:
 #   * registers with the server and keeps a token in config.json
-#   * reports heartbeats (status, logged-in user, OS, antivirus, firewall)
-#   * tracks student login/logout for attendance
+#   * runs as a SYSTEM boot task so it covers ALL users on the machine
+#   * reports heartbeats (status, console user, OS, antivirus, firewall,
+#     live scan state)
+#   * tracks the interactive (console) user for attendance
 #   * detects USB storage insertion, scans it with Defender, and reports it
 #   * ejects removable drives that are not approved by the administrator
 #   * inventories keyboard/mouse/monitor peripherals, warns on-screen (full
 #     screen overlay) when a baseline device is disconnected, and reports
 #     connect/disconnect to the server with the current user
-#   * logs the user out automatically after a configurable idle time
+#   * monitors the Security log for local account password changes (4723) and
+#     password resets (4724) and reports them as alerts/events
+#   * disables Windows auto-login at boot so PCs always land on the login page
+#   * logs the console user out automatically after a configurable idle time
+#   * runs antivirus scans as background jobs and reports scanning status
 #   * executes remote actions (lock, restart, message, file push/delete, AV
 #     scan/update/toggle, firewall enable/disable, Remote Desktop enable)
 #
@@ -19,7 +25,9 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -ServerUrl https://YOUR-APP.onrender.com -Install
 #
 #   -Install copies the script into ProgramData and registers a scheduled
-#   task that starts it at every user logon.
+#   task that starts it at boot as the SYSTEM account (before any user logs
+#   in), so one install covers every user on the PC. Run it from an elevated
+#   PowerShell window.
 # ============================================================================
 
 param(
@@ -31,7 +39,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.1.0'
+$script:AgentVersion = '1.2.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $AgentPath = Join-Path $ConfigDir 'lab-agent.ps1'
@@ -97,22 +105,78 @@ function Register-Agent {
   return $cfg
 }
 
-function Get-CurrentUser {
+function Get-IsSystem {
   try {
-    $user = (whoami 2>$null)
-    if ($user) { return $user.Trim() }
+    $who = (whoami 2>$null)
+    if ($who) { return ($who -match '(?i)nt authority\\system') }
   } catch {}
+  return $false
+}
+
+function Get-CurrentUser {
+  # The interactive (console) user, even when the agent runs as SYSTEM.
+  try {
+    $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+    if ($cs.UserName) { return $cs.UserName.Trim() }
+  } catch {}
+  try {
+    $lines = @(& quser 2>$null)
+    if ($lines.Count -eq 0) { $lines = @(& query.exe user 2>$null) }
+    foreach ($line in $lines | Select-Object -Skip 1) {
+      if ($line -match '^\s*>?(?<user>\S+)\s+(?<session>\S+)\s+(?<id>\d+)\s+(?<state>\S+)') {
+        if ($Matches['session'] -eq 'console' -or $Matches['state'] -eq 'Active') {
+          return $Matches['user']
+        }
+      }
+    }
+  } catch {}
+  try {
+    $p = Get-Process explorer -IncludeUserName -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($p -and $p.UserName) { return $p.UserName }
+  } catch {}
+  if (-not (Get-IsSystem)) {
+    try {
+      $user = (whoami 2>$null)
+      if ($user) { return $user.Trim() }
+    } catch {}
+  }
   return ''
 }
 
+function Invoke-Interactive {
+  # Run a command on the interactive desktop. Under SYSTEM this uses a
+  # temporary interactive scheduled task; otherwise it starts the process
+  # directly.
+  param([string]$FilePath, [string]$ArgumentList = '')
+  if (-not (Get-IsSystem)) {
+    try {
+      if ($ArgumentList) {
+        Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -WindowStyle Hidden -ErrorAction Stop
+      } else {
+        Start-Process -FilePath $FilePath -WindowStyle Hidden -ErrorAction Stop
+      }
+    } catch {}
+    return
+  }
+  $taskName = 'LabCC-Interactive-' + [Guid]::NewGuid().ToString('N')
+  $tr = '"{0}" {1}' -f $FilePath, $ArgumentList
+  try {
+    & schtasks.exe /Create /TN $taskName /TR $tr /SC ONCE /ST 00:00 /RU SYSTEM /IT /RL HIGHEST /F 2>$null | Out-Null
+    & schtasks.exe /Run /TN $taskName 2>$null | Out-Null
+    Start-Sleep -Milliseconds 800
+    & schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
+  } catch {}
+}
+
 function Get-AvStatus {
-  $result = @{ enabled = $null; signature = $null; lastScan = $null }
+  $result = @{ enabled = $null; signature = $null; lastScan = $null; scanState = $script:avScanState }
   try {
     $mp = Get-MpComputerStatus -ErrorAction Stop
     $result.enabled = ($mp.AntivirusEnabled -eq $true)
     if ($mp.AntivirusSignatureVersion) { $result.signature = $mp.AntivirusSignatureVersion }
     if ($mp.AntivirusScanEndTime) { $result.lastScan = $mp.AntivirusScanEndTime.ToString('o') }
   } catch {}
+  if ($script:avLastScanAt) { $result.lastScan = $script:avLastScanAt.ToString('o') }
   return $result
 }
 
@@ -184,9 +248,15 @@ public static class LccIdleHelper {
 }
 
 $script:WarningScriptPath = Join-Path $ConfigDir 'peripheral-warning.ps1'
-$script:warningPid = $null
+$script:MessageScriptPath = Join-Path $ConfigDir 'message.ps1'
 $script:lastWarningKey = $null
+$script:warningActive = $false
 $script:idleHelperLoaded = $false
+$script:avScanState = 'idle'
+$script:avLastScanAt = $null
+$script:scanJob = $null
+$script:scanAction = $null
+$script:lastAuditCheck = $null
 
 function Ensure-WarningScript {
   $content = @'
@@ -228,19 +298,42 @@ $form.Controls.Add($title)
   Set-Content -LiteralPath $script:WarningScriptPath -Value $content -Encoding UTF8
 }
 
+function Ensure-MessageScript {
+  $content = @'
+param([string]$Text = '')
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$notify = New-Object System.Windows.Forms.NotifyIcon
+$notify.Icon = [System.Drawing.SystemIcons]::Information
+$notify.Visible = $true
+$notify.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
+$notify.BalloonTipTitle = 'Lab Command Center'
+$notify.BalloonTipText = $Text
+$notify.ShowBalloonTip(10000)
+Start-Sleep -Seconds 10
+$notify.Dispose()
+'@
+  Set-Content -LiteralPath $script:MessageScriptPath -Value $content -Encoding UTF8
+}
+
 function Show-PeripheralWarning {
   param([string[]]$Devices)
   Ensure-WarningScript
   $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Devices "{1}"' -f $script:WarningScriptPath, ($Devices -join ';')
-  $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -WindowStyle Hidden -PassThru
-  $script:warningPid = $proc.Id
+  Invoke-Interactive -FilePath 'powershell.exe' -ArgumentList $argLine
+  $script:warningActive = $true
 }
 
 function Stop-PeripheralWarning {
-  if ($script:warningPid) {
-    Stop-Process -Id $script:warningPid -Force -ErrorAction SilentlyContinue
-    $script:warningPid = $null
-  }
+  try {
+    $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue)
+    foreach ($proc in $procs) {
+      if ($proc.CommandLine -like '*peripheral-warning.ps1*') {
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+      }
+    }
+  } catch {}
+  $script:warningActive = $false
   $script:lastWarningKey = $null
 }
 
@@ -281,21 +374,9 @@ function Get-UsbKey {
 
 function Show-Message {
   param([string]$Text)
-  try {
-    Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
-    Add-Type -AssemblyName System.Drawing -ErrorAction Stop
-    $notify = New-Object System.Windows.Forms.NotifyIcon
-    $notify.Icon = [System.Drawing.SystemIcons]::Information
-    $notify.Visible = $true
-    $notify.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
-    $notify.BalloonTipTitle = 'Lab Command Center'
-    $notify.BalloonTipText = $Text
-    $notify.ShowBalloonTip(10000)
-    Start-Sleep -Seconds 1
-    $notify.Dispose()
-  } catch {
-    try { & msg.exe '*' $Text 2>$null | Out-Null } catch {}
-  }
+  Ensure-MessageScript
+  $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Text "{1}"' -f $script:MessageScriptPath, ($Text -replace '"', '""')
+  Invoke-Interactive -FilePath 'powershell.exe' -ArgumentList $argLine
 }
 
 function Enable-RemoteDesktop {
@@ -340,10 +421,8 @@ function Remove-TargetFile {
   return @{ success = $false; detail = ('Path not found: {0}' -f $target) }
 }
 
-function Invoke-AvScan {
+function Invoke-SyncScan {
   param($Payload)
-  $mode = 'quick'
-  if ($Payload.type -eq 'full') { $mode = 'full' }
   $scanPath = $Payload.path
   try {
     $status = Get-MpComputerStatus -ErrorAction Stop
@@ -354,14 +433,77 @@ function Invoke-AvScan {
       Start-MpScan -ScanPath $scanPath -ScanType QuickScan -ErrorAction Stop
       return @{ success = $true; detail = ('Defender scan completed on {0}' -f $scanPath) }
     }
-    if ($mode -eq 'full') {
-      Start-MpScan -ScanType FullScan -ErrorAction Stop
-      return @{ success = $true; detail = 'Defender full scan completed' }
-    }
     Start-MpScan -ScanType QuickScan -ErrorAction Stop
     return @{ success = $true; detail = 'Defender quick scan completed' }
   } catch {
     return @{ success = $false; detail = $_.Exception.Message }
+  }
+}
+
+function Start-ScanJob {
+  param([string]$Type)
+  $resultPath = Join-Path $ConfigDir 'scan-result.json'
+  Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
+  return Start-Job -ArgumentList $Type, $resultPath -ScriptBlock {
+    param($scanType, $outPath)
+    try {
+      Import-Module Defender -ErrorAction SilentlyContinue
+      if ($scanType -eq 'full') {
+        Start-MpScan -ScanType FullScan -ErrorAction Stop
+      } else {
+        Start-MpScan -ScanType QuickScan -ErrorAction Stop
+      }
+      @{ success = $true; detail = if ($scanType -eq 'full') { 'Defender full scan completed' } else { 'Defender quick scan completed' } } |
+        ConvertTo-Json -Compress | Set-Content -LiteralPath $outPath -Encoding UTF8
+    } catch {
+      @{ success = $false; detail = $_.Exception.Message } |
+        ConvertTo-Json -Compress | Set-Content -LiteralPath $outPath -Encoding UTF8
+    }
+  }
+}
+
+function Poll-ScanJob {
+  # Called once per loop; finishes a background scan and reports the result.
+  if (-not $script:scanJob) { return }
+  if ($script:scanJob.State -eq 'Completed') {
+    $out = Receive-Job -Job $script:scanJob
+    Remove-Job -Job $script:scanJob -Force
+    $script:scanJob = $null
+    $script:avScanState = 'idle'
+    $script:avLastScanAt = Get-Date
+    $result = @{ success = $false; detail = 'Scan job completed with no result' }
+    $resultPath = Join-Path $ConfigDir 'scan-result.json'
+    if (Test-Path -LiteralPath $resultPath) {
+      try { $result = (Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json) } catch {}
+      Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
+    }
+    if ($script:scanAction) {
+      $body = @{ token = $config.token; success = ([bool]$result.success) }
+      if ($result.detail) { $body.detail = $result.detail }
+      try {
+        Invoke-ApiJson -Method 'POST' -Path ('/api/agent/actions/{0}/complete' -f $script:scanAction.id) -Body $body | Out-Null
+      } catch {}
+      $script:scanAction = $null
+      if ($result.success) {
+        Write-Log ('Action "av_scan" completed - {0}' -f $result.detail)
+      } else {
+        Write-Log ('Action "av_scan" FAILED: {0}' -f $result.detail)
+      }
+    }
+  } elseif ($script:scanJob.State -in @('Failed', 'Stopped')) {
+    Remove-Job -Job $script:scanJob -Force
+    $script:scanJob = $null
+    $script:avScanState = 'idle'
+    if ($script:scanAction) {
+      $body = @{ token = $config.token; success = $false; detail = 'Scan job stopped unexpectedly' }
+      try {
+        Invoke-ApiJson -Method 'POST' -Path ('/api/agent/actions/{0}/complete' -f $script:scanAction.id) -Body $body | Out-Null
+      } catch {}
+      $script:scanAction = $null
+      Write-Log ('Action "av_scan" FAILED: Scan job stopped')
+    }
+  } else {
+    $script:avScanState = 'scanning'
   }
 }
 
@@ -378,6 +520,119 @@ function Eject-RemovableDrives {
   } catch {}
 }
 
+function Ensure-AuditPolicy {
+  try {
+    & auditpol.exe /set /subcategory:"User Account Management" /success:enable /failure:enable 2>$null | Out-Null
+  } catch {}
+}
+
+function Get-SecurityAccount {
+  param($Event, [string]$Field)
+  try {
+    $xml = [xml]$Event.ToXml()
+    foreach ($prop in $xml.Event.EventData.Data) {
+      if ($prop.Name -eq $Field) {
+        $val = [string]$prop.'#text'
+        if ($val) { return $val }
+      }
+    }
+  } catch {}
+  return ''
+}
+
+function Read-PasswordEvents {
+  # Returns new 4723/4724 events since the last cursor, updating it on disk.
+  $cfg = Get-Config
+  if (-not $cfg) { return }
+  $cursor = $null
+  if ($cfg.PSObject.Properties.Name -contains 'securityCursor') { $cursor = $cfg.securityCursor }
+  $lastRecord = 0
+  if ($cfg.PSObject.Properties.Name -contains 'securityLastRecord') { $lastRecord = [long]$cfg.securityLastRecord }
+
+  $found = @()
+  try {
+    $filter = @{ LogName = 'Security'; Id = 4723, 4724; ErrorAction = 'SilentlyContinue' }
+    if ($cursor) {
+      try { $filter.StartTime = ([datetime]$cursor).AddMinutes(-1) } catch {}
+    }
+    $found = @(Get-WinEvent -FilterHashtable $filter -ErrorAction SilentlyContinue |
+      Where-Object { $_.Id -in 4723, 4724 -and $_.RecordId -gt $lastRecord } |
+      Sort-Object TimeCreated)
+  } catch {}
+
+  foreach ($ev in $found) {
+    $actor = Get-SecurityAccount $ev 'SubjectUserName'
+    $actorDomain = Get-SecurityAccount $ev 'SubjectDomainName'
+    $target = Get-SecurityAccount $ev 'TargetUserName'
+    $targetDomain = Get-SecurityAccount $ev 'TargetDomainName'
+    if (-not $actor) { $actor = 'unknown' }
+    if ($target -match '\$$' -or $target -eq 'SYSTEM' -or $target -eq '') { continue }
+    $actorFull = if ($actorDomain) { '{0}\{1}' -f $actorDomain, $actor } else { $actor }
+    $targetFull = if ($targetDomain) { '{0}\{1}' -f $targetDomain, $target } else { $target }
+    $isReset = ($ev.Id -eq 4724)
+    $type = if ($isReset) { 'password_reset' } else { 'password_change' }
+    $message = if ($isReset) {
+      'Password reset on {0} by {1} (account: {2})' -f $env:COMPUTERNAME, $actorFull, $targetFull
+    } else {
+      'Password changed on {0} by {1} (account: {2})' -f $env:COMPUTERNAME, $actorFull, $targetFull
+    }
+    $detail = 'actor={0} target={1}' -f $actorFull, $targetFull
+    $body = @{ token = $config.token; type = $type; message = $message; detail = $detail }
+    try {
+      Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $body | Out-Null
+      Write-Log $message
+    } catch {}
+  }
+
+  if ($found.Count -gt 0) {
+    $last = $found[-1]
+    $cfg | Add-Member -NotePropertyName securityCursor -NotePropertyValue $last.TimeCreated.ToString('o') -Force
+    $cfg | Add-Member -NotePropertyName securityLastRecord -NotePropertyValue $last.RecordId -Force
+    Save-Config $cfg
+  }
+}
+
+function Remove-AutoLogon {
+  $key = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+  $changed = $false
+  try {
+    $props = Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
+    if ($props.PSObject.Properties.Name -contains 'AutoAdminLogon' -and [string]$props.AutoAdminLogon -ne '0') {
+      Set-ItemProperty -LiteralPath $key -Name 'AutoAdminLogon' -Value '0' -Type String -Force
+      $changed = $true
+    }
+  } catch {}
+  foreach ($name in @('DefaultUserName', 'DefaultPassword', 'DefaultDomainName', 'AltDefaultUserName', 'AltDefaultPassword', 'AltDefaultDomainName')) {
+    try {
+      $props = Get-ItemProperty -LiteralPath $key -Name $name -ErrorAction SilentlyContinue
+      if ($props.PSObject.Properties.Name -contains $name) {
+        Remove-ItemProperty -LiteralPath $key -Name $name -Force
+        $changed = $true
+      }
+    } catch {}
+  }
+  return $changed
+}
+
+function Enforce-AutoLogon {
+  # Disables auto-login at boot so the PC always shows the login screen.
+  $cleaned = Remove-AutoLogon
+  $cfg = Get-Config
+  if (-not $cfg) { return }
+  $alreadyCleaned = ($cfg.PSObject.Properties.Name -contains 'autoLogonCleaned') -and $cfg.autoLogonCleaned
+  if ($cleaned) {
+    if (-not $alreadyCleaned) {
+      $body = @{ token = $cfg.token; type = 'autologon'; message = 'Auto-login disabled at boot on {0}' -f $env:COMPUTERNAME; detail = 'Removed AutoAdminLogon/Default* values from Winlogon' }
+      try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $body | Out-Null } catch {}
+      Write-Log 'Auto-login was enabled; disabled so the PC shows the login page.'
+    }
+    $cfg | Add-Member -NotePropertyName autoLogonCleaned -NotePropertyValue $true -Force
+  } else {
+    $cfg | Add-Member -NotePropertyName autoLogonCleaned -NotePropertyValue $false -Force
+  }
+  Save-Config $cfg
+}
+
 function Execute-Action {
   param($Action)
   $actionName = $Action.action
@@ -387,6 +642,7 @@ function Execute-Action {
   }
 
   $result = $null
+  $defer = $false
   try {
     switch ($actionName) {
       'lock' {
@@ -440,7 +696,21 @@ function Execute-Action {
         break
       }
       'av_scan' {
-        $result = Invoke-AvScan $payload
+        if ($payload.path) {
+          $result = Invoke-SyncScan $payload
+          break
+        }
+        if ($script:scanJob) {
+          $result = @{ success = $false; detail = 'A scan is already running; wait for it to finish.' }
+          break
+        }
+        $type = 'quick'
+        if ($payload.type -eq 'full') { $type = 'full' }
+        $script:scanJob = Start-ScanJob -Type $type
+        $script:scanAction = $Action
+        $script:avScanState = 'scanning'
+        $defer = $true
+        Write-Log ('{0} scan started.' -f $(if ($type -eq 'full') { 'Full' } else { 'Quick' }))
         break
       }
       'av_update' {
@@ -491,6 +761,7 @@ function Execute-Action {
     $result = @{ success = $false; detail = $_.Exception.Message }
   }
 
+  if ($defer) { return }
   if (-not $result) { $result = @{ success = $false; detail = 'No result' } }
 
   $body = @{ token = $config.token; success = $result.success }
@@ -506,7 +777,8 @@ function Execute-Action {
 }
 
 # ---------------------------------------------------------------------------
-# Install mode: copy the script and register a scheduled task at user logon
+# Install mode: copy the script and register a SYSTEM boot task that covers
+# every user (runs before anyone logs in).
 # ---------------------------------------------------------------------------
 if ($Install) {
   if ([string]::IsNullOrWhiteSpace($ServerUrl)) {
@@ -514,10 +786,11 @@ if ($Install) {
   }
   New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
   Copy-Item -LiteralPath $MyInvocation.MyCommand.Path -Destination $AgentPath -Force
+  & schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
   $taskCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $AgentPath -ServerUrl $ServerUrl"
-  & schtasks.exe /Create /TN $TaskName /TR $taskCmd /SC ONLOGON /RL LIMITED /F | Out-Null
+  & schtasks.exe /Create /TN $TaskName /TR $taskCmd /SC ONSTART /RU SYSTEM /RL HIGHEST /F | Out-Null
   & schtasks.exe /Run /TN $TaskName | Out-Null
-  Write-Log 'Installed. The agent will start at every user logon and now.'
+  Write-Log 'Installed as a SYSTEM boot task. The agent covers all users and starts before anyone logs in.'
   exit 0
 }
 
@@ -548,9 +821,16 @@ $script:seenUsb = @()
 
 Write-Log ('Agent v{0} running for {1} -> {2}' -f $script:AgentVersion, $config.name, $ServerUrl)
 
+# Boot-time tasks: enable security auditing and disable any auto-login.
+Ensure-AuditPolicy
+$script:lastAuditCheck = Get-Date
+Enforce-AutoLogon
+
 try {
   while ($true) {
     try {
+      Poll-ScanJob
+
       $user = Get-CurrentUser
       $av = Get-AvStatus
       $fw = Get-FirewallStatus
@@ -564,6 +844,7 @@ try {
       if ($null -ne $av.enabled) { $hbBody.avEnabled = $av.enabled }
       if ($av.signature) { $hbBody.avSignature = $av.signature }
       if ($av.lastScan) { $hbBody.avLastScanAt = $av.lastScan }
+      if ($av.scanState) { $hbBody.avScanState = $av.scanState }
       if ($null -ne $fw.enabled) { $hbBody.firewallEnabled = $fw.enabled }
       if ($fw.profiles) { $hbBody.firewallProfiles = $fw.profiles }
 
@@ -608,7 +889,7 @@ try {
               $shell = New-Object -ComObject Shell.Application
               $item = $shell.Namespace(17).ParseName(('{0}:' -f $drive.Letter))
               if ($item) { $item.InvokeVerb('Eject') }
-              Write-Log ('Ejected unapproved USB drive {0}:.' -f $drive.Letter)
+              Write-Log ('Ejected unapproved USB drive {0}:' -f $drive.Letter)
             } catch {}
           }
         }
@@ -621,7 +902,7 @@ try {
         if ($idleSeconds -ge ([int]$hb.idleLogoutMinutes) * 60) {
           Write-Log ('Idle {0}s exceeds limit of {1} min. Logging off {2}.' -f $idleSeconds, $hb.idleLogoutMinutes, $user)
           Show-Message 'Lab Command Center: this computer was idle too long and will now log off.'
-          & shutdown.exe /l /f 2>$null
+          Invoke-Interactive -FilePath 'logoff.exe'
         }
       }
 
@@ -659,8 +940,7 @@ try {
 
       if ($missing.Count -gt 0) {
         $missingKey = ($missing | Sort-Object) -join '|'
-        $running = $script:warningPid -and (Get-Process -Id $script:warningPid -ErrorAction SilentlyContinue)
-        if (-not $running -or $script:lastWarningKey -ne $missingKey) {
+        if (-not $script:warningActive -or $script:lastWarningKey -ne $missingKey) {
           Stop-PeripheralWarning
           Show-PeripheralWarning -Devices $missing
           $script:lastWarningKey = $missingKey
@@ -669,6 +949,13 @@ try {
       } else {
         Stop-PeripheralWarning
       }
+
+      # ---- password change/reset monitoring ----------------------------------
+      if (-not $script:lastAuditCheck -or ((Get-Date) - $script:lastAuditCheck).TotalMinutes -ge 10) {
+        Ensure-AuditPolicy
+        $script:lastAuditCheck = Get-Date
+      }
+      Read-PasswordEvents
     } catch {
       $statusCode = 0
       if ($_.Exception.Response) { $statusCode = [int]$_.Exception.Response.StatusCode }

@@ -50,6 +50,7 @@ const DDL_STATEMENTS = [
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS av_enabled boolean;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS av_signature text;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS av_last_scan_at timestamptz;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS av_scan_state text;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS firewall_enabled boolean;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS firewall_profiles text;
   `,
@@ -151,6 +152,25 @@ const DDL_STATEMENTS = [
     key text PRIMARY KEY,
     value text NOT NULL,
     updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS lab_scan_runs (
+    id serial PRIMARY KEY,
+    action text NOT NULL,
+    initiated_by text NOT NULL,
+    status text NOT NULL DEFAULT 'queued',
+    requested_at timestamptz NOT NULL DEFAULT now(),
+    finished_at timestamptz
+  );
+  CREATE TABLE IF NOT EXISTS lab_scan_results (
+    id serial PRIMARY KEY,
+    run_id integer NOT NULL,
+    computer_id integer NOT NULL,
+    computer_name text NOT NULL,
+    status text NOT NULL DEFAULT 'queued',
+    detail text,
+    finished_at timestamptz
   );
   `,
 ];

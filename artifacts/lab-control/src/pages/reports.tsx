@@ -22,6 +22,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { PrintButton } from "@/components/print-button";
 import { formatDateTime } from "@/lib/format";
 
 const RANGES = [
@@ -86,18 +87,21 @@ function Reports() {
             Attendance and policy violation summaries with CSV export.
           </p>
         </div>
-        <Select value={String(days)} onValueChange={(value) => setDays(Number(value))}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="Time range" />
-          </SelectTrigger>
-          <SelectContent>
-            {RANGES.map((range) => (
-              <SelectItem key={range.value} value={String(range.value)}>
-                {range.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="no-print flex items-center gap-2">
+          <PrintButton />
+          <Select value={String(days)} onValueChange={(value) => setDays(Number(value))}>
+            <SelectTrigger className="w-44">
+              <SelectValue placeholder="Time range" />
+            </SelectTrigger>
+            <SelectContent>
+              {RANGES.map((range) => (
+                <SelectItem key={range.value} value={String(range.value)}>
+                  {range.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="flex gap-1 rounded-lg border p-1 w-fit">

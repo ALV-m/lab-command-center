@@ -95,8 +95,8 @@ function Agents() {
             What the agent does
           </CardTitle>
           <CardDescription>
-            Reports heartbeats, tracks attendance, watches USB and peripherals, enforces security
-            settings, and executes remote actions.
+            Reports heartbeats, tracks attendance, watches USB and peripherals, monitors password
+            changes, removes auto-login, enforces security settings, and executes remote actions.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -108,6 +108,8 @@ function Agents() {
             <li>Inventories keyboards, mice, and monitors; warns on-screen when a device is removed</li>
             <li>Logs users out automatically after a configurable idle time</li>
             <li>Reports antivirus and firewall status; runs AV scans/updates and firewall toggles</li>
+            <li>Watches the Security log and reports password changes and resets (4723/4724)</li>
+            <li>Removes the Windows auto-login setting so no password is skipped at boot</li>
             <li>Remote actions: lock, restart, message, file push/delete, AV scan</li>
             <li>Enables Remote Desktop and reports IP for remote control</li>
           </ul>
@@ -121,7 +123,8 @@ function Agents() {
             Quick setup on a lab PC
           </CardTitle>
           <CardDescription>
-            Requires Windows 10/11 and PowerShell 5.1+ — no other installs.
+            Requires Windows 10/11 and PowerShell 5.1+ — no other installs. The installed agent
+            starts at boot as SYSTEM, so it monitors and controls the PC for every user.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -134,8 +137,12 @@ function Agents() {
             <CodeBlock>{runCmd}</CodeBlock>
           </div>
           <div className="space-y-2">
-            <p className="text-sm font-medium">3. Install it to run at every logon (recommended)</p>
+            <p className="text-sm font-medium">3. Install it to start at boot as SYSTEM (recommended)</p>
             <CodeBlock>{installCmd}</CodeBlock>
+            <p className="text-xs text-muted-foreground">
+              Creates a scheduled task that runs at startup under the SYSTEM account, so password
+              monitoring, auto-login removal, and idle logout apply to every user on the PC.
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -204,6 +211,11 @@ function Agents() {
           <p>
             • USB enforcement ejects unapproved removable drives; for hard blocking on domain-managed
             labs, combine with Group Policy (Removable Storage Access).
+          </p>
+          <p>
+            • Password change/reset monitoring reads the Windows Security log (events 4723/4724); the
+            agent enables the "User Account Management" audit policy on first run. Older events before
+            the first run are not backfilled.
           </p>
         </CardContent>
       </Card>

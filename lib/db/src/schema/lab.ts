@@ -25,6 +25,7 @@ export const computersTable = pgTable("lab_computers", {
   avEnabled: boolean("av_enabled"),
   avSignature: text("av_signature"),
   avLastScanAt: timestamp("av_last_scan_at", { withTimezone: true }),
+  avScanState: text("av_scan_state"),
   firewallEnabled: boolean("firewall_enabled"),
   firewallProfiles: text("firewall_profiles"),
 });
@@ -110,6 +111,25 @@ export const settingsTable = pgTable("lab_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const scanRunsTable = pgTable("lab_scan_runs", {
+  id: serial("id").primaryKey(),
+  action: text("action").notNull(),
+  initiatedBy: text("initiated_by").notNull(),
+  status: text("status").notNull().default("queued"),
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+});
+
+export const scanResultsTable = pgTable("lab_scan_results", {
+  id: serial("id").primaryKey(),
+  runId: integer("run_id").notNull(),
+  computerId: integer("computer_id").notNull(),
+  computerName: text("computer_name").notNull(),
+  status: text("status").notNull().default("queued"),
+  detail: text("detail"),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+});
+
 export const insertComputerSchema = createInsertSchema(computersTable).omit({ id: true });
 export const insertActionSchema = createInsertSchema(actionsTable).omit({ id: true, createdAt: true });
 export const insertAlertSchema = createInsertSchema(alertsTable).omit({ id: true, createdAt: true });
@@ -124,4 +144,6 @@ export type UsbPolicy = typeof usbPoliciesTable.$inferSelect;
 export type StudentSession = typeof studentSessionsTable.$inferSelect;
 export type LabEvent = typeof eventsTable.$inferSelect;
 export type Peripheral = typeof peripheralsTable.$inferSelect;
+export type ScanRun = typeof scanRunsTable.$inferSelect;
+export type ScanResult = typeof scanResultsTable.$inferSelect;
 export type InsertComputer = z.infer<typeof insertComputerSchema>;

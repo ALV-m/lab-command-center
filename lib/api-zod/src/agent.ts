@@ -41,6 +41,7 @@ export const AgentHeartbeatBody = zod.object({
   avEnabled: zod.boolean().nullish(),
   avSignature: zod.string().nullish(),
   avLastScanAt: zod.string().nullish(),
+  avScanState: zod.string().nullish(),
   firewallEnabled: zod.boolean().nullish(),
   firewallProfiles: zod.string().nullish(),
 });
@@ -89,6 +90,9 @@ export const AgentEventBody = zod.object({
     "usb_connected",
     "usb_removed",
     "login_failure",
+    "password_change",
+    "password_reset",
+    "autologon",
   ]),
   message: zod.string().max(500).optional(),
   detail: zod.string().max(500).optional(),

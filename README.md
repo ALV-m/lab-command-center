@@ -9,11 +9,12 @@ A complete management dashboard for a computer lab: track computers, run operato
 - **Alerts** — acknowledge and resolve alerts raised across the lab.
 - **USB policy** — set removable-media policy to allowed/blocked/review for all or selected computers; USB device connections are scanned and must be approved before they can be used.
 - **Peripherals** — the agent inventories keyboards, mice, and monitors on first run; if one is removed, the PC shows a full-screen warning overlay to return it and an alert + event (with the current user) is recorded for the administrator. Live status on the Peripherals page.
-- **Security** — per-computer antivirus and firewall controls: quick/full scans, definition updates, real-time protection toggle, and firewall enable/disable, with reported status.
+- **Security** — an **Antivirus** and **Firewall** submenu: run quick/full scans or definition updates on all PCs (or a selected set), see live per-PC protection health, and browse a persisted scan-history report with per-computer results (JSON/CSV/print). Firewall enable/disable is broadcast the same way.
+- **Password monitoring** — the agent watches the Windows Security log (events 4723/4724) and alerts on password changes/resets; it also clears the Winlogon auto-login setting at boot so no password is skipped.
 - **Idle logout** — set an inactivity threshold (minutes); the agent logs the user out automatically when keyboard/mouse idle exceeds it.
-- **Reports** — attendance, violations, and peripheral event reports with JSON + CSV export.
-- **Agent** — download `lab-agent.ps1` and install it on each lab PC; it reports heartbeat/status, tracks logins, scans and reports USB devices, watches peripherals, and executes queued actions.
-- **Events** — an audit log of operator actions, logins, USB events, and peripheral connects/disconnects.
+- **Reports** — attendance, violations, peripheral event, and security-scan reports with JSON + CSV export and a print button on every report and log.
+- **Agent** — download `lab-agent.ps1` and install it on each lab PC; it reports heartbeat/status, tracks logins, scans and reports USB devices, watches peripherals, monitors password changes, removes auto-login, and executes queued actions. Installed agents run at boot as SYSTEM so they cover every user.
+- **Events** — an audit log of operator actions, logins, USB events, password changes, auto-login removals, and peripheral connects/disconnects (printable).
 - **Deployment** — a `render.yaml` blueprint for the web service with schema bootstrap and seed data.
 
 ## Tech stack
@@ -135,6 +136,10 @@ lab-command-center/
 | GET    | `/api/reports/violations.csv`     | Violations report (CSV)                 |
 | GET    | `/api/reports/peripherals`        | Peripheral events report (JSON)         |
 | GET    | `/api/reports/peripherals.csv`    | Peripheral events report (CSV)          |
+| GET    | `/api/reports/scans`              | Security scan runs + per-PC results     |
+| GET    | `/api/reports/scans.csv`          | Security scan results (CSV)             |
+| POST   | `/api/security/broadcast`         | Broadcast scans/updates/firewall actions |
+| GET    | `/api/security/health.csv`        | Per-PC AV/firewall health (CSV)         |
 
 Computer actions: `lock`, `unlock`, `restart`, `wake`, `send_message`, `remote_view`, `remote_control`, `block_usb`, `allow_usb`, `push_file`, `delete_file`, `av_scan`, `av_update`, `av_toggle`, `fw_enable`, `fw_disable`.
 
@@ -154,13 +159,13 @@ All request/response bodies are validated with the Zod schemas in `lib/api-zod`.
    powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -ServerUrl https://<your-app>.onrender.com
    ```
 
-3. To install it so it starts at every user logon:
+3. To install it so it starts at **boot as SYSTEM** (covers every user on the PC):
 
    ```powershell
    powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -Install -ServerUrl https://<your-app>.onrender.com
    ```
 
-The agent registers the PC (its name becomes the computer name in the dashboard), heartbeats every 30 seconds, reports USB device connections (scanning them with Windows Defender first), inventories keyboards/mice/monitors (showing a full-screen warning overlay on the PC when a baseline device is disconnected), tracks student login/logout, and executes queued actions. `-ServerUrl` can be an `http://<ip>:<port>` address for a LAN deployment.
+The agent registers the PC (its name becomes the computer name in the dashboard), heartbeats every 30 seconds, reports USB device connections (scanning them with Windows Defender first), inventories keyboards/mice/monitors (showing a full-screen warning overlay on the PC when a baseline device is disconnected), tracks student login/logout, watches the Security log for password changes/resets, clears the Windows auto-login setting at boot, and executes queued actions. `-ServerUrl` can be an `http://<ip>:<port>` address for a LAN deployment.
 
 To enable automatic logout after inactivity, open the **Agent** page and set **Idle minutes** (0 disables it). Agents read the threshold from their heartbeat and log the user off when keyboard/mouse input has been idle for that long.
 

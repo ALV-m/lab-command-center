@@ -49,6 +49,7 @@ export const GetComputersResponseItem = zod.object({
   "avEnabled": zod.boolean().nullable(),
   "avSignature": zod.string().nullable(),
   "avLastScanAt": zod.string().nullable(),
+  "avScanState": zod.string().nullable(),
   "firewallEnabled": zod.boolean().nullable(),
   "firewallProfiles": zod.string().nullable()
 })

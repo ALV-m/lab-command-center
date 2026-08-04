@@ -1,9 +1,10 @@
 import { Router, type IRouter } from "express";
-import { desc, gte } from "drizzle-orm";
-import { db, eventsTable, studentSessionsTable } from "@workspace/db";
+import { desc, eq, gte } from "drizzle-orm";
+import { db, eventsTable, scanResultsTable, scanRunsTable, studentSessionsTable } from "@workspace/db";
 import {
   AttendanceReportResponse,
   PeripheralsReportResponse,
+  ScanReportResponse,
   ViolationsReportResponse,
 } from "@workspace/api-zod";
 
@@ -13,6 +14,8 @@ const VIOLATION_TYPES = new Set([
   "usb_blocked",
   "usb_connected",
   "login_failure",
+  "password_change",
+  "password_reset",
   "peripheral_disconnect",
 ]);
 const PERIPHERAL_TYPES = new Set(["peripheral_disconnect", "peripheral_connect"]);
@@ -215,6 +218,94 @@ router.get("/reports/peripherals.csv", async (req, res): Promise<void> => {
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="peripherals-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(`\uFEFF${csv}`);
+});
+
+router.get("/reports/scans", async (req, res): Promise<void> => {
+  const days = parseDays(req.query.days);
+  const cutoff = daysAgo(days);
+
+  const runs = await db
+    .select()
+    .from(scanRunsTable)
+    .where(cutoff ? gte(scanRunsTable.requestedAt, cutoff) : undefined)
+    .orderBy(desc(scanRunsTable.requestedAt));
+
+  const results = await db.select().from(scanResultsTable);
+
+  const byRun = new Map<number, typeof results>();
+  for (const result of results) {
+    const list = byRun.get(result.runId) ?? [];
+    list.push(result);
+    byRun.set(result.runId, list);
+  }
+
+  res.json(
+    ScanReportResponse.parse(
+      runs.map((run) => ({
+        id: run.id,
+        action: run.action,
+        initiatedBy: run.initiatedBy,
+        status: run.status,
+        requestedAt: iso(run.requestedAt) as string,
+        finishedAt: iso(run.finishedAt),
+        results: (byRun.get(run.id) ?? []).map((result) => ({
+          id: result.id,
+          computerId: result.computerId,
+          computerName: result.computerName,
+          status: result.status,
+          detail: result.detail,
+          finishedAt: iso(result.finishedAt),
+        })),
+      })),
+    ),
+  );
+});
+
+router.get("/reports/scans.csv", async (req, res): Promise<void> => {
+  const days = parseDays(req.query.days);
+  const cutoff = daysAgo(days);
+
+  const runs = await db
+    .select()
+    .from(scanRunsTable)
+    .where(cutoff ? gte(scanRunsTable.requestedAt, cutoff) : undefined)
+    .orderBy(desc(scanRunsTable.requestedAt));
+
+  const results = await db.select().from(scanResultsTable);
+  const byRun = new Map<number, typeof results>();
+  for (const result of results) {
+    const list = byRun.get(result.runId) ?? [];
+    list.push(result);
+    byRun.set(result.runId, list);
+  }
+
+  const rows: string[][] = [];
+  for (const run of runs) {
+    const runResults = byRun.get(run.id) ?? [];
+    for (const result of runResults) {
+      rows.push([
+        iso(run.requestedAt) ?? "",
+        run.action,
+        run.initiatedBy,
+        run.status,
+        result.computerName,
+        result.status,
+        result.detail ?? "",
+        iso(result.finishedAt) ?? "",
+      ]);
+    }
+  }
+
+  const csv = [
+    ["Requested", "Action", "Initiated by", "Run status", "Computer", "Result", "Details", "Finished"],
+    ...rows,
+  ]
+    .map((row) => row.map(csvEscape).join(","))
+    .join("\r\n");
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="scans-${new Date().toISOString().slice(0, 10)}.csv"`);
   res.send(`\uFEFF${csv}`);
 });
 

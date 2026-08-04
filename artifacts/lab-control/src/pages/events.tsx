@@ -4,15 +4,17 @@ import {
   AlertTriangle,
   Ban,
   CircleDot,
+  KeyRound,
   LogIn,
   Monitor,
+  Rocket,
   ShieldAlert,
-  UserPlus,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { PrintButton } from "@/components/print-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { timeAgo } from "@/lib/format";
 
@@ -24,13 +26,20 @@ const EVENT_ICONS: Record<string, typeof Activity> = {
   usb_policy_change: ShieldAlert,
   login_failure: AlertTriangle,
   hardware_issue: AlertTriangle,
+  password_change: KeyRound,
+  password_reset: KeyRound,
+  autologon: Rocket,
 };
 
 function EventTypeBadge({ type }: { type: string }) {
   const variant =
-    type === "usb_blocked" || type === "login_failure" || type === "hardware_issue"
+    type === "usb_blocked" ||
+    type === "login_failure" ||
+    type === "hardware_issue" ||
+    type === "password_change" ||
+    type === "password_reset"
       ? "destructive"
-      : type === "usb_policy_change"
+      : type === "usb_policy_change" || type === "autologon"
         ? "warning"
         : "default";
   return <Badge variant={variant as "default" | "destructive" | "warning"}>{type.replaceAll("_", " ")}</Badge>;
@@ -43,11 +52,16 @@ function Events() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Activity Log</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          The 50 most recent events across the lab.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Activity Log</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The 50 most recent events across the lab.
+          </p>
+        </div>
+        <div className="no-print">
+          <PrintButton />
+        </div>
       </div>
 
       <Card>
@@ -88,7 +102,8 @@ function Events() {
                 </EmptyMedia>
                 <EmptyTitle>No events recorded</EmptyTitle>
                 <EmptyDescription>
-                  Operator actions, student logins, and USB events will appear here.
+                  Operator actions, student logins, USB events, and password changes will appear
+                  here.
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>

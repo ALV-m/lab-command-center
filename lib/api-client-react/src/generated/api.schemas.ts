@@ -60,6 +60,8 @@ export interface Computer {
   /** @nullable */
   avLastScanAt: string | null;
   /** @nullable */
+  avScanState: string | null;
+  /** @nullable */
   firewallEnabled: boolean | null;
   /** @nullable */
   firewallProfiles: string | null;

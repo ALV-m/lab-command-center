@@ -11,6 +11,8 @@ import {
   alertsTable,
   computersTable,
   eventsTable,
+  scanResultsTable,
+  scanRunsTable,
   settingsTable,
   studentSessionsTable,
   usbDevicesTable,
@@ -192,6 +194,7 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
       avLastScanAt: body.data.avLastScanAt
         ? new Date(body.data.avLastScanAt)
         : computer.avLastScanAt,
+      avScanState: body.data.avScanState ?? computer.avScanState,
       firewallEnabled: body.data.firewallEnabled ?? computer.firewallEnabled,
       firewallProfiles: body.data.firewallProfiles ?? computer.firewallProfiles,
     })
@@ -304,6 +307,56 @@ router.post("/agent/actions/:actionId/complete", async (req, res): Promise<void>
     .update(actionsTable)
     .set({ status: body.data.success ? "acknowledged" : "failed" })
     .where(eq(actionsTable.id, action.id));
+
+  const scanMeta = (() => {
+    try {
+      const parsed = JSON.parse(action.payload ?? "{}") as Record<string, unknown>;
+      const runId = Number(parsed.scanRunId);
+      const resultId = Number(parsed.scanResultId);
+      return Number.isFinite(runId) && Number.isFinite(resultId)
+        ? { runId, resultId }
+        : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  if (scanMeta) {
+    const [result] = await db
+      .update(scanResultsTable)
+      .set({
+        status: body.data.success ? "completed" : "failed",
+        detail: body.data.detail?.trim() ?? null,
+        finishedAt: new Date(),
+      })
+      .where(eq(scanResultsTable.id, scanMeta.resultId))
+      .returning();
+
+    if (result) {
+      const [pending] = await db
+        .select({ id: scanResultsTable.id })
+        .from(scanResultsTable)
+        .where(
+          and(
+            eq(scanResultsTable.runId, scanMeta.runId),
+            sql`${scanResultsTable.status} NOT IN ('completed', 'failed')`,
+          ),
+        )
+        .limit(1);
+
+      if (!pending) {
+        const [allResults] = await db
+          .select({ status: scanResultsTable.status })
+          .from(scanResultsTable)
+          .where(eq(scanResultsTable.runId, scanMeta.runId));
+        const hasFailure = allResults.some((row) => row.status === "failed");
+        await db
+          .update(scanRunsTable)
+          .set({ status: hasFailure ? "completed_with_errors" : "completed", finishedAt: new Date() })
+          .where(eq(scanRunsTable.id, scanMeta.runId));
+      }
+    }
+  }
 
   const detail = body.data.detail?.trim();
   await db.insert(eventsTable).values({
@@ -439,6 +492,48 @@ router.post("/agent/events", async (req, res): Promise<void> => {
         type: "login_failure",
         message: detail ?? message ?? "Failed login attempt",
         actor: "unknown",
+        computerName: computer.name,
+      });
+      break;
+    }
+    case "password_change":
+    case "password_reset": {
+      const isReset = body.data.type === "password_reset";
+      const actorMatch = detail?.match(/actor=([^\s;]+)/);
+      const targetMatch = detail?.match(/target=([^\s;]+)/);
+      const actor = actorMatch ? actorMatch[1] : "unknown";
+      const target = targetMatch ? targetMatch[1] : null;
+      const who = safeUser(message ?? null);
+      await db.insert(alertsTable).values({
+        severity: "warning",
+        title: isReset ? "Password reset" : "Password changed",
+        detail: `Account "${target ?? "?"}" ${
+          isReset ? "password was reset" : "changed its own password"
+        } on ${computer.name}${actor !== "unknown" ? ` by ${actor}` : ""}${
+          who ? ` — user on the PC at the time: ${who}` : ""
+        }`,
+        computerName: computer.name,
+        status: "open",
+      });
+      await db.insert(eventsTable).values({
+        type: body.data.type,
+        message:
+          message ??
+          detail ??
+          `${isReset ? "Password reset" : "Password change"} on ${computer.name}`,
+        actor,
+        computerName: computer.name,
+      });
+      break;
+    }
+    case "autologon": {
+      await db.insert(eventsTable).values({
+        type: "autologon",
+        message:
+          message ??
+          detail ??
+          `Auto-login disabled at boot on ${computer.name}`,
+        actor: "Agent",
         computerName: computer.name,
       });
       break;
