@@ -32,8 +32,11 @@ catalog:
 
 autoInstallPeers: false
 
-onlyBuiltDependencies:
-  - '@swc/core'
-  - esbuild
-  - msw
-  - unrs-resolver
+# pnpm 11: allow native/optional build scripts for tooling that needs them
+# (esbuild bundles the API; @tailwindcss/oxide builds the Tailwind engine).
+allowBuilds:
+  esbuild: true
+  '@tailwindcss/oxide': true
+  '@swc/core': true
+  unrs-resolver: true
+  msw: true
