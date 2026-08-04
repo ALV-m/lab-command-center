@@ -19,4 +19,11 @@ export const ComputerActionInputAction = {
   remote_control: 'remote_control',
   block_usb: 'block_usb',
   allow_usb: 'allow_usb',
+  push_file: 'push_file',
+  delete_file: 'delete_file',
+  av_scan: 'av_scan',
+  av_update: 'av_update',
+  av_toggle: 'av_toggle',
+  fw_enable: 'fw_enable',
+  fw_disable: 'fw_disable',
 } as const;

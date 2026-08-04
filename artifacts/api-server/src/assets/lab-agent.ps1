@@ -3,12 +3,16 @@
 #
 # Zero-dependency agent that runs on each lab PC. It:
 #   * registers with the server and keeps a token in config.json
-#   * reports heartbeats (status, logged-in user, OS, antivirus status)
+#   * reports heartbeats (status, logged-in user, OS, antivirus, firewall)
 #   * tracks student login/logout for attendance
 #   * detects USB storage insertion, scans it with Defender, and reports it
 #   * ejects removable drives that are not approved by the administrator
+#   * inventories keyboard/mouse/monitor peripherals, warns on-screen (full
+#     screen overlay) when a baseline device is disconnected, and reports
+#     connect/disconnect to the server with the current user
+#   * logs the user out automatically after a configurable idle time
 #   * executes remote actions (lock, restart, message, file push/delete, AV
-#     scan, Remote Desktop enable)
+#     scan/update/toggle, firewall enable/disable, Remote Desktop enable)
 #
 # Usage:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -ServerUrl https://YOUR-APP.onrender.com
@@ -27,7 +31,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.0.0'
+$script:AgentVersion = '1.1.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $AgentPath = Join-Path $ConfigDir 'lab-agent.ps1'
@@ -110,6 +114,142 @@ function Get-AvStatus {
     if ($mp.AntivirusScanEndTime) { $result.lastScan = $mp.AntivirusScanEndTime.ToString('o') }
   } catch {}
   return $result
+}
+
+function Get-FirewallStatus {
+  $result = @{ enabled = $null; profiles = '' }
+  try {
+    $fw = @(Get-NetFirewallProfile -ErrorAction Stop)
+    if ($fw.Count -gt 0) {
+      $parts = @()
+      $allOn = $true
+      foreach ($p in $fw) {
+        $on = ($p.Enabled -eq $true)
+        if (-not $on) { $allOn = $false }
+        $state = if ($on) { 'On' } else { 'Off' }
+        $parts += ('{0}={1}' -f $p.Name, $state)
+      }
+      $result.enabled = $allOn
+      $result.profiles = ($parts -join ', ')
+    }
+  } catch {}
+  return $result
+}
+
+function Get-Peripherals {
+  $result = @()
+  $classes = @('Keyboard', 'Mouse', 'Monitor')
+  $kindMap = @{ 'Keyboard' = 'keyboard'; 'Mouse' = 'mouse'; 'Monitor' = 'monitor' }
+  try {
+    foreach ($cls in $classes) {
+      $devices = @(Get-PnpDevice -Class $cls -ErrorAction SilentlyContinue)
+      foreach ($dev in $devices) {
+        if (-not $dev.InstanceId) { continue }
+        $present = ($dev.Status -eq 'OK') -and ($dev.Present -eq $true)
+        $name = if ($dev.FriendlyName) { $dev.FriendlyName } else { $dev.InstanceId }
+        $result += [PSCustomObject]@{
+          kind = $kindMap[$cls]
+          name = $name
+          instanceId = $dev.InstanceId
+          present = $present
+        }
+      }
+    }
+  } catch {}
+  return $result
+}
+
+function Get-IdleSeconds {
+  try {
+    if (-not $script:idleHelperLoaded) {
+      Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class LccIdleHelper {
+  [DllImport("user32.dll")]
+  public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+  [StructLayout(LayoutKind.Sequential)]
+  public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+}
+"@ -ErrorAction Stop
+      $script:idleHelperLoaded = $true
+    }
+    $lii = New-Object LccIdleHelper+LASTINPUTINFO
+    $lii.cbSize = [Runtime.InteropServices.Marshal]::SizeOf($lii)
+    [LccIdleHelper]::GetLastInputInfo([ref]$lii) | Out-Null
+    $idle = ([Environment]::TickCount - [int]$lii.dwTime) / 1000
+    if ($idle -lt 0) { $idle = 0 }
+    return [int]$idle
+  } catch { return 0 }
+}
+
+$script:WarningScriptPath = Join-Path $ConfigDir 'peripheral-warning.ps1'
+$script:warningPid = $null
+$script:lastWarningKey = $null
+$script:idleHelperLoaded = $false
+
+function Ensure-WarningScript {
+  $content = @'
+param([string]$Devices = '')
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$devices = @($Devices -split ';' | Where-Object { $_ -and $_.Trim() })
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'Lab Command Center'
+$form.WindowState = [System.Windows.Forms.FormWindowState]::Maximized
+$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+$form.TopMost = $true
+$form.BackColor = [System.Drawing.Color]::Black
+$title = New-Object System.Windows.Forms.Label
+$title.Text = 'DEVICE DISCONNECTED'
+$title.Font = New-Object System.Drawing.Font('Segoe UI', 36, [System.Drawing.FontStyle]::Bold)
+$title.ForeColor = [System.Drawing.Color]::FromArgb(224, 32, 32)
+$title.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$title.Dock = [System.Windows.Forms.DockStyle]::Top
+$title.Height = 160
+$msg = New-Object System.Windows.Forms.Label
+$msg.Text = "One or more peripheral devices are disconnected.`nPlease return the following device(s) so the computer stays under supervision:"
+$msg.Font = New-Object System.Drawing.Font('Segoe UI', 16)
+$msg.ForeColor = [System.Drawing.Color]::White
+$msg.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$msg.Dock = [System.Windows.Forms.DockStyle]::Top
+$msg.Height = 140
+$list = New-Object System.Windows.Forms.Label
+$list.Text = if ($devices.Count -gt 0) { ($devices -join "`n`n") } else { 'Unknown device' }
+$list.Font = New-Object System.Drawing.Font('Segoe UI', 18, [System.Drawing.FontStyle]::Bold)
+$list.ForeColor = [System.Drawing.Color]::Yellow
+$list.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$list.Dock = [System.Windows.Forms.DockStyle]::Fill
+$form.Controls.Add($list)
+$form.Controls.Add($msg)
+$form.Controls.Add($title)
+[System.Windows.Forms.Application]::Run($form)
+'@
+  Set-Content -LiteralPath $script:WarningScriptPath -Value $content -Encoding UTF8
+}
+
+function Show-PeripheralWarning {
+  param([string[]]$Devices)
+  Ensure-WarningScript
+  $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Devices "{1}"' -f $script:WarningScriptPath, ($Devices -join ';')
+  $proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -WindowStyle Hidden -PassThru
+  $script:warningPid = $proc.Id
+}
+
+function Stop-PeripheralWarning {
+  if ($script:warningPid) {
+    Stop-Process -Id $script:warningPid -Force -ErrorAction SilentlyContinue
+    $script:warningPid = $null
+  }
+  $script:lastWarningKey = $null
+}
+
+function Save-Baseline {
+  param([string[]]$InstanceIds)
+  $cfg = Get-Config
+  if (-not $cfg) { return }
+  $cfg | Add-Member -NotePropertyName baselinePeripherals -NotePropertyValue @($InstanceIds) -Force
+  Save-Config $cfg
 }
 
 function Get-RemovableDrives {
@@ -303,6 +443,45 @@ function Execute-Action {
         $result = Invoke-AvScan $payload
         break
       }
+      'av_update' {
+        try {
+          Update-MpSignature -ErrorAction Stop | Out-Null
+          $result = @{ success = $true; detail = 'Antivirus definitions updated.' }
+        } catch {
+          $result = @{ success = $false; detail = $_.Exception.Message }
+        }
+        break
+      }
+      'av_toggle' {
+        $enabled = $true
+        if ($payload.enabled -is [bool]) { $enabled = $payload.enabled }
+        try {
+          Set-MpPreference -DisableRealtimeMonitoring (-not $enabled) -ErrorAction Stop
+          $detail = if ($enabled) { 'Real-time protection enabled.' } else { 'Real-time protection disabled.' }
+          $result = @{ success = $true; detail = $detail }
+        } catch {
+          $result = @{ success = $false; detail = $_.Exception.Message }
+        }
+        break
+      }
+      'fw_enable' {
+        try {
+          Set-NetFirewallProfile -All -Enabled True -ErrorAction Stop
+          $result = @{ success = $true; detail = 'Windows Firewall enabled on all profiles.' }
+        } catch {
+          $result = @{ success = $false; detail = $_.Exception.Message }
+        }
+        break
+      }
+      'fw_disable' {
+        try {
+          Set-NetFirewallProfile -All -Enabled False -ErrorAction Stop
+          $result = @{ success = $true; detail = 'Windows Firewall disabled on all profiles.' }
+        } catch {
+          $result = @{ success = $false; detail = $_.Exception.Message }
+        }
+        break
+      }
       default {
         $result = @{ success = $true; detail = ('Unknown action: {0}' -f $actionName) }
         break
@@ -374,6 +553,7 @@ try {
     try {
       $user = Get-CurrentUser
       $av = Get-AvStatus
+      $fw = Get-FirewallStatus
 
       $hbBody = @{
         token = $config.token
@@ -384,6 +564,8 @@ try {
       if ($null -ne $av.enabled) { $hbBody.avEnabled = $av.enabled }
       if ($av.signature) { $hbBody.avSignature = $av.signature }
       if ($av.lastScan) { $hbBody.avLastScanAt = $av.lastScan }
+      if ($null -ne $fw.enabled) { $hbBody.firewallEnabled = $fw.enabled }
+      if ($fw.profiles) { $hbBody.firewallProfiles = $fw.profiles }
 
       $hb = Invoke-ApiJson -Method 'POST' -Path '/api/agent/heartbeat' -Body $hbBody
 
@@ -431,6 +613,62 @@ try {
           }
         }
       }
+
+      # ---- idle auto-logout -------------------------------------------------
+      $isSystemUser = ($user -match '(?i)^nt authority\\') -or ($user -match '\$$')
+      if ($hb.idleLogoutMinutes -and ([int]$hb.idleLogoutMinutes) -gt 0 -and $user -and -not $isSystemUser) {
+        $idleSeconds = Get-IdleSeconds
+        if ($idleSeconds -ge ([int]$hb.idleLogoutMinutes) * 60) {
+          Write-Log ('Idle {0}s exceeds limit of {1} min. Logging off {2}.' -f $idleSeconds, $hb.idleLogoutMinutes, $user)
+          Show-Message 'Lab Command Center: this computer was idle too long and will now log off.'
+          & shutdown.exe /l /f 2>$null
+        }
+      }
+
+      # ---- peripherals ------------------------------------------------------
+      $peripherals = @(Get-Peripherals)
+      if ($peripherals.Count -gt 0) {
+        $pBody = @{ token = $config.token; user = $user }
+        $pBody.devices = @()
+        foreach ($dev in $peripherals) {
+          $pBody.devices += @{ kind = $dev.kind; name = $dev.name; instanceId = $dev.instanceId; present = $dev.present }
+        }
+        try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/peripherals' -Body $pBody | Out-Null } catch {}
+      }
+
+      $baseline = @($config.baselinePeripherals)
+      if ($baseline.Count -eq 0) {
+        $present = @($peripherals | Where-Object { $_.present } | ForEach-Object { $_.instanceId })
+        if ($present.Count -gt 0) {
+          Save-Baseline $present
+          $baseline = $present
+          Write-Log ('Peripheral baseline captured: {0} device(s).' -f $present.Count)
+        }
+      }
+
+      $missing = @()
+      if ($baseline.Count -gt 0) {
+        foreach ($instanceId in $baseline) {
+          $dev = $peripherals | Where-Object { $_.instanceId -eq $instanceId }
+          if (-not $dev -or -not $dev.present) {
+            $name = if ($dev) { $dev.name } else { $instanceId }
+            $missing += $name
+          }
+        }
+      }
+
+      if ($missing.Count -gt 0) {
+        $missingKey = ($missing | Sort-Object) -join '|'
+        $running = $script:warningPid -and (Get-Process -Id $script:warningPid -ErrorAction SilentlyContinue)
+        if (-not $running -or $script:lastWarningKey -ne $missingKey) {
+          Stop-PeripheralWarning
+          Show-PeripheralWarning -Devices $missing
+          $script:lastWarningKey = $missingKey
+          Write-Log ('Peripheral warning shown for: {0}' -f ($missing -join ', '))
+        }
+      } else {
+        Stop-PeripheralWarning
+      }
     } catch {
       $statusCode = 0
       if ($_.Exception.Response) { $statusCode = [int]$_.Exception.Response.StatusCode }
@@ -447,5 +685,6 @@ try {
     Start-Sleep -Seconds $IntervalSeconds
   }
 } finally {
+  Stop-PeripheralWarning
   Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
 }

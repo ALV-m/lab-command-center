@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
+  Cable,
   Download,
   FileText,
   LayoutDashboard,
@@ -22,6 +23,7 @@ import Computers from "@/pages/computers";
 import Dashboard from "@/pages/dashboard";
 import Events from "@/pages/events";
 import NotFound from "@/pages/not-found";
+import Peripherals from "@/pages/peripherals";
 import Reports from "@/pages/reports";
 import Sessions from "@/pages/sessions";
 import UsbPolicies from "@/pages/usb-policies";
@@ -41,6 +43,7 @@ const NAV_ITEMS = [
   { href: "/computers", label: "Computers", icon: Monitor },
   { href: "/alerts", label: "Alerts", icon: AlertTriangle },
   { href: "/usb-policies", label: "USB Policy", icon: ShieldCheck },
+  { href: "/peripherals", label: "Peripherals", icon: Cable },
   { href: "/sessions", label: "Sessions", icon: Users },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/events", label: "Events", icon: Activity },
@@ -146,6 +149,7 @@ function Layout() {
               <Route path="/computers" component={Computers} />
               <Route path="/alerts" component={Alerts} />
               <Route path="/usb-policies" component={UsbPolicies} />
+              <Route path="/peripherals" component={Peripherals} />
               <Route path="/sessions" component={Sessions} />
               <Route path="/reports" component={Reports} />
               <Route path="/events" component={Events} />

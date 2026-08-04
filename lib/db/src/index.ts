@@ -50,6 +50,8 @@ const DDL_STATEMENTS = [
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS av_enabled boolean;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS av_signature text;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS av_last_scan_at timestamptz;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS firewall_enabled boolean;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS firewall_profiles text;
   `,
   `
   CREATE TABLE IF NOT EXISTS lab_actions (
@@ -124,6 +126,31 @@ const DDL_STATEMENTS = [
     scan_result text,
     created_at timestamptz NOT NULL DEFAULT now(),
     decided_at timestamptz
+  );
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS lab_peripherals (
+    id serial PRIMARY KEY,
+    computer_id integer NOT NULL,
+    computer_name text NOT NULL,
+    kind text NOT NULL,
+    name text NOT NULL,
+    instance_id text NOT NULL,
+    present boolean NOT NULL DEFAULT true,
+    first_seen_at timestamptz NOT NULL DEFAULT now(),
+    last_changed_at timestamptz NOT NULL DEFAULT now()
+  );
+  `,
+  `
+  ALTER TABLE lab_peripherals ADD COLUMN IF NOT EXISTS last_changed_at timestamptz;
+  CREATE UNIQUE INDEX IF NOT EXISTS lab_peripherals_computer_instance_idx
+    ON lab_peripherals (computer_id, instance_id);
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS lab_settings (
+    key text PRIMARY KEY,
+    value text NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
   );
   `,
 ];

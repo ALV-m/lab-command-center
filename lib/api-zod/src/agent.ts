@@ -13,6 +13,10 @@ export const AgentComputerAction = zod.enum([
   "push_file",
   "delete_file",
   "av_scan",
+  "av_update",
+  "av_toggle",
+  "fw_enable",
+  "fw_disable",
 ]);
 
 export const AgentRegisterBody = zod.object({
@@ -37,6 +41,8 @@ export const AgentHeartbeatBody = zod.object({
   avEnabled: zod.boolean().nullish(),
   avSignature: zod.string().nullish(),
   avLastScanAt: zod.string().nullish(),
+  firewallEnabled: zod.boolean().nullish(),
+  firewallProfiles: zod.string().nullish(),
 });
 
 export const AgentPendingAction = zod.object({
@@ -53,9 +59,12 @@ export const AgentHeartbeatResponse = zod.object({
     name: zod.string(),
     status: zod.enum(["online", "offline", "warning", "locked"]),
     usbState: zod.enum(["blocked", "allowed", "review"]),
+    firewallEnabled: zod.boolean().nullish(),
+    firewallProfiles: zod.string().nullish(),
   }),
   allowedUsb: zod.array(zod.string()),
   pendingActions: zod.array(AgentPendingAction),
+  idleLogoutMinutes: zod.number().int().nonnegative().nullish(),
 });
 
 export const AgentActionCompleteParams = zod.object({

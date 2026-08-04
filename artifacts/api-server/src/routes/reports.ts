@@ -3,12 +3,19 @@ import { desc, gte } from "drizzle-orm";
 import { db, eventsTable, studentSessionsTable } from "@workspace/db";
 import {
   AttendanceReportResponse,
+  PeripheralsReportResponse,
   ViolationsReportResponse,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
-const VIOLATION_TYPES = new Set(["usb_blocked", "usb_connected", "login_failure"]);
+const VIOLATION_TYPES = new Set([
+  "usb_blocked",
+  "usb_connected",
+  "login_failure",
+  "peripheral_disconnect",
+]);
+const PERIPHERAL_TYPES = new Set(["peripheral_disconnect", "peripheral_connect"]);
 
 function parseDays(value: unknown): number {
   const parsed = Number(value);
@@ -150,6 +157,64 @@ router.get("/reports/violations.csv", async (req, res): Promise<void> => {
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="violations-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(`\uFEFF${csv}`);
+});
+
+router.get("/reports/peripherals", async (req, res): Promise<void> => {
+  const days = parseDays(req.query.days);
+  const cutoff = daysAgo(days);
+
+  const events = await db
+    .select()
+    .from(eventsTable)
+    .where(cutoff ? gte(eventsTable.createdAt, cutoff) : undefined)
+    .orderBy(desc(eventsTable.createdAt));
+
+  res.json(
+    PeripheralsReportResponse.parse(
+      events
+        .filter((event) => PERIPHERAL_TYPES.has(event.type))
+        .map((event) => ({
+          id: event.id,
+          type: event.type,
+          message: event.message,
+          actor: event.actor,
+          computerName: event.computerName,
+          createdAt: iso(event.createdAt) as string,
+        })),
+    ),
+  );
+});
+
+router.get("/reports/peripherals.csv", async (req, res): Promise<void> => {
+  const days = parseDays(req.query.days);
+  const cutoff = daysAgo(days);
+
+  const events = await db
+    .select()
+    .from(eventsTable)
+    .where(cutoff ? gte(eventsTable.createdAt, cutoff) : undefined)
+    .orderBy(desc(eventsTable.createdAt));
+
+  const rows = events
+    .filter((event) => PERIPHERAL_TYPES.has(event.type))
+    .map((event) => [
+      iso(event.createdAt) ?? "",
+      event.type,
+      event.message,
+      event.actor,
+      event.computerName ?? "",
+    ]);
+
+  const csv = [
+    ["Time", "Type", "Details", "User", "Computer"],
+    ...rows,
+  ]
+    .map((row) => row.map(csvEscape).join(","))
+    .join("\r\n");
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="peripherals-${new Date().toISOString().slice(0, 10)}.csv"`);
   res.send(`\uFEFF${csv}`);
 });
 

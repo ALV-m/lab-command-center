@@ -53,6 +53,16 @@ export interface Computer {
   os: string;
   usbState: ComputerUsbState;
   peripherals: ComputerPeripherals;
+  /** @nullable */
+  avEnabled: boolean | null;
+  /** @nullable */
+  avSignature: string | null;
+  /** @nullable */
+  avLastScanAt: string | null;
+  /** @nullable */
+  firewallEnabled: boolean | null;
+  /** @nullable */
+  firewallProfiles: string | null;
 }
 
 export type ComputerActionInputAction = typeof ComputerActionInputAction[keyof typeof ComputerActionInputAction];
@@ -71,6 +81,10 @@ export const ComputerActionInputAction = {
   push_file: 'push_file',
   delete_file: 'delete_file',
   av_scan: 'av_scan',
+  av_update: 'av_update',
+  av_toggle: 'av_toggle',
+  fw_enable: 'fw_enable',
+  fw_disable: 'fw_disable',
 } as const;
 
 export interface ComputerActionInput {

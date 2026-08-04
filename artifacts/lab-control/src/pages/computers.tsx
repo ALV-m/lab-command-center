@@ -62,7 +62,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge, UsbBadge } from "@/components/badges";
-import { timeAgo } from "@/lib/format";
+import { formatDateTime, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const STATUS_FILTERS = ["all", "online", "offline", "warning", "locked"] as const;
@@ -81,6 +81,7 @@ function Computers() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Computer | null>(null);
   const [deletePath, setDeletePath] = useState("");
+  const [securityTarget, setSecurityTarget] = useState<Computer | null>(null);
 
   const actionMutation = useCreateComputerAction({
     mutation: {
@@ -152,6 +153,11 @@ function Computers() {
     setDeleteTarget(null);
     setDeletePath("");
   };
+
+  const securityBusy = actionMutation.isPending;
+  const avEnabled = securityTarget?.avEnabled;
+  const firewallEnabled = securityTarget?.firewallEnabled;
+  const firewallProfiles = securityTarget?.firewallProfiles;
 
   return (
     <div className="space-y-6">
@@ -326,6 +332,13 @@ function Computers() {
                           Run antivirus scan
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          disabled={actionMutation.isPending}
+                          onClick={() => setSecurityTarget(computer)}
+                        >
+                          <ShieldAlert className="size-4" />
+                          Security…
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           disabled={fileMutation.isPending}
                           onClick={() => setFileTarget(computer)}
                         >
@@ -438,6 +451,131 @@ function Computers() {
             <Button variant="destructive" onClick={confirmDelete} disabled={deletePath.trim().length === 0 || actionMutation.isPending}>
               <Trash2 className="size-4" />
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={securityTarget !== null} onOpenChange={(open) => !open && setSecurityTarget(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Security on {securityTarget?.name}</DialogTitle>
+            <DialogDescription>
+              Antivirus and firewall status and controls. Actions are delivered to the agent on its
+              next check-in.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="rounded-lg border p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="size-4 text-amber-500" />
+                  <p className="font-medium">Windows Defender</p>
+                </div>
+                <Badge variant={avEnabled === false ? "destructive" : "default"}>
+                  {avEnabled == null ? "Unknown" : avEnabled ? "Enabled" : "Disabled"}
+                </Badge>
+              </div>
+              <dl className="mt-3 space-y-1 text-sm text-muted-foreground">
+                <div className="flex justify-between">
+                  <dt>Definitions</dt>
+                  <dd className="tabular-nums">{securityTarget?.avSignature || "—"}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt>Last scan</dt>
+                  <dd className="tabular-nums">{formatDateTime(securityTarget?.avLastScanAt)}</dd>
+                </div>
+              </dl>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={securityBusy}
+                  onClick={() => securityTarget && runAction(securityTarget, ComputerActionInputAction.av_scan)}
+                >
+                  <Radar className="size-4" />
+                  Quick scan
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={securityBusy}
+                  onClick={() =>
+                    securityTarget &&
+                    runAction(
+                      securityTarget,
+                      ComputerActionInputAction.av_scan,
+                      JSON.stringify({ type: "full" }),
+                    )
+                  }
+                >
+                  <Radar className="size-4" />
+                  Full scan
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={securityBusy}
+                  onClick={() => securityTarget && runAction(securityTarget, ComputerActionInputAction.av_update)}
+                >
+                  <RefreshCcw className="size-4" />
+                  Update definitions
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={securityBusy || avEnabled == null}
+                  onClick={() =>
+                    securityTarget &&
+                    runAction(
+                      securityTarget,
+                      ComputerActionInputAction.av_toggle,
+                      JSON.stringify({ enabled: !avEnabled }),
+                    )
+                  }
+                >
+                  {avEnabled ? <Ban className="size-4" /> : <ShieldCheck className="size-4" />}
+                  {avEnabled ? "Disable protection" : "Enable protection"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-lg border p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="size-4 text-emerald-500" />
+                  <p className="font-medium">Windows Firewall</p>
+                </div>
+                <Badge variant={firewallEnabled === false ? "destructive" : "default"}>
+                  {firewallEnabled == null ? "Unknown" : firewallEnabled ? "Enabled" : "Disabled"}
+                </Badge>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">{firewallProfiles || "No profile data reported yet."}</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={securityBusy}
+                  onClick={() => securityTarget && runAction(securityTarget, ComputerActionInputAction.fw_enable)}
+                >
+                  <ShieldCheck className="size-4" />
+                  Enable firewall
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={securityBusy}
+                  onClick={() => securityTarget && runAction(securityTarget, ComputerActionInputAction.fw_disable)}
+                >
+                  <Ban className="size-4" />
+                  Disable firewall
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSecurityTarget(null)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

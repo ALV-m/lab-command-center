@@ -33,10 +33,14 @@ export interface ViolationsReportRow {
   createdAt: string;
 }
 
+export type PeripheralsReportRow = ViolationsReportRow;
+
 export const getAttendanceReportUrl = (days = 0): string => `/api/reports/attendance?days=${days}`;
 export const getViolationsReportUrl = (days = 0): string => `/api/reports/violations?days=${days}`;
+export const getPeripheralsReportUrl = (days = 0): string => `/api/reports/peripherals?days=${days}`;
 export const getAttendanceCsvUrl = (days = 0): string => `/api/reports/attendance.csv?days=${days}`;
 export const getViolationsCsvUrl = (days = 0): string => `/api/reports/violations.csv?days=${days}`;
+export const getPeripheralsCsvUrl = (days = 0): string => `/api/reports/peripherals.csv?days=${days}`;
 
 export const getAttendanceReport = async (
   days = 0,
@@ -121,3 +125,45 @@ export const useGetViolationsReport = <
     request?: SecondParameter<typeof customFetch>;
   },
 ): UseQueryResult<TData, TError> => useQuery(getViolationsReportQueryOptions(days, options));
+
+export const getPeripheralsReport = async (
+  days = 0,
+  options?: Parameters<typeof customFetch>[1],
+): Promise<PeripheralsReportRow[]> => {
+  return customFetch<PeripheralsReportRow[]>(getPeripheralsReportUrl(days), { ...options, method: "GET" });
+};
+
+export const getPeripheralsReportQueryKey = (days = 0): readonly [string, number] =>
+  ["/api/reports/peripherals", days] as const;
+
+export const getPeripheralsReportQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPeripheralsReport>>,
+  TError = ErrorType<unknown>,
+>(
+  days = 0,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getPeripheralsReport>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryOptions<Awaited<ReturnType<typeof getPeripheralsReport>>, TError, TData> & { queryKey: QueryKey } => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getPeripheralsReportQueryKey(days);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPeripheralsReport>>> = ({ signal }) =>
+    getPeripheralsReport(days, { signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPeripheralsReport>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export const useGetPeripheralsReport = <
+  TData = Awaited<ReturnType<typeof getPeripheralsReport>>,
+  TError = ErrorType<unknown>,
+>(
+  days = 0,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getPeripheralsReport>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> => useQuery(getPeripheralsReportQueryOptions(days, options));

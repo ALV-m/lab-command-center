@@ -20,4 +20,14 @@ export interface Computer {
   os: string;
   usbState: ComputerUsbState;
   peripherals: ComputerPeripherals;
+  /** @nullable */
+  avEnabled: boolean | null;
+  /** @nullable */
+  avSignature: string | null;
+  /** @nullable */
+  avLastScanAt: string | null;
+  /** @nullable */
+  firewallEnabled: boolean | null;
+  /** @nullable */
+  firewallProfiles: string | null;
 }

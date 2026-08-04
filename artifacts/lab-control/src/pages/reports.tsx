@@ -1,11 +1,13 @@
 import { useState } from "react";
 import {
   getAttendanceCsvUrl,
+  getPeripheralsCsvUrl,
   getViolationsCsvUrl,
   useGetAttendanceReport,
+  useGetPeripheralsReport,
   useGetViolationsReport,
 } from "@workspace/api-client-react";
-import { Download, FileText, ShieldAlert, Users } from "lucide-react";
+import { Cable, Download, FileText, ShieldAlert, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 import { Badge } from "@/components/ui/badge";
@@ -62,7 +64,7 @@ function ReportCard({
 }
 
 function Reports() {
-  const [tab, setTab] = useState<"attendance" | "violations">("attendance");
+  const [tab, setTab] = useState<"attendance" | "violations" | "peripherals">("attendance");
   const [days, setDays] = useState(7);
 
   const attendance = useGetAttendanceReport(days, {
@@ -70,6 +72,9 @@ function Reports() {
   });
   const violations = useGetViolationsReport(days, {
     query: { queryKey: ["violations", days], refetchInterval: 30_000 },
+  });
+  const peripherals = useGetPeripheralsReport(days, {
+    query: { queryKey: ["peripherals-report", days], refetchInterval: 30_000 },
   });
 
   return (
@@ -100,6 +105,7 @@ function Reports() {
           [
             { key: "attendance", label: "Attendance", icon: Users },
             { key: "violations", label: "Violations", icon: ShieldAlert },
+            { key: "peripherals", label: "Peripherals", icon: Cable },
           ] as const
         ).map((item) => (
           <button
@@ -179,11 +185,11 @@ function Reports() {
             )}
           </div>
         </div>
-      ) : (
+      ) : tab === "violations" ? (
         <div className="space-y-4">
           <ReportCard
             title="Violations"
-            description="Blocked USB devices, unexpected device connections, and failed logins."
+            description="Blocked USB devices, unexpected device connections, failed logins, and disconnected peripherals."
             onDownload={() => {
               window.open(getViolationsCsvUrl(days), "_blank");
             }}
@@ -224,6 +230,64 @@ function Reports() {
                       <TableCell className="tabular-nums">{formatDateTime(row.createdAt)}</TableCell>
                       <TableCell>
                         <Badge variant="destructive">{row.type.replaceAll("_", " ")}</Badge>
+                      </TableCell>
+                      <TableCell className="max-w-md truncate">{row.message}</TableCell>
+                      <TableCell>{row.computerName ?? "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{row.actor}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <ReportCard
+            title="Peripherals"
+            description="Connect and disconnect events for keyboards, mice, and monitors, with the user on the computer at the time."
+            onDownload={() => {
+              window.open(getPeripheralsCsvUrl(days), "_blank");
+            }}
+          />
+          <div className="rounded-lg border">
+            {peripherals.isLoading ? (
+              <div className="space-y-3 p-4">
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <Skeleton key={index} className="h-12 w-full" />
+                ))}
+              </div>
+            ) : (peripherals.data ?? []).length === 0 ? (
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia>
+                    <Cable className="size-5" />
+                  </EmptyMedia>
+                  <EmptyTitle>No peripheral events</EmptyTitle>
+                  <EmptyDescription>
+                    Device connect and disconnect activity reported by the client agents will appear here.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Event</TableHead>
+                    <TableHead>Details</TableHead>
+                    <TableHead>Computer</TableHead>
+                    <TableHead>User</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(peripherals.data ?? []).map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="tabular-nums">{formatDateTime(row.createdAt)}</TableCell>
+                      <TableCell>
+                        <Badge variant={row.type === "peripheral_disconnect" ? "destructive" : "success"}>
+                          {row.type === "peripheral_disconnect" ? "Disconnected" : "Connected"}
+                        </Badge>
                       </TableCell>
                       <TableCell className="max-w-md truncate">{row.message}</TableCell>
                       <TableCell>{row.computerName ?? "—"}</TableCell>

@@ -58,6 +58,11 @@ const mapComputer = (computer: typeof computersTable.$inferSelect) => ({
   os: computer.os,
   usbState: computer.usbState,
   peripherals: { keyboard: computer.keyboard, mouse: computer.mouse },
+  avEnabled: computer.avEnabled,
+  avSignature: computer.avSignature,
+  avLastScanAt: iso(computer.avLastScanAt),
+  firewallEnabled: computer.firewallEnabled,
+  firewallProfiles: computer.firewallProfiles,
 });
 
 const mapAlert = (alert: typeof alertsTable.$inferSelect) => ({

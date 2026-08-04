@@ -23,3 +23,14 @@ export const ViolationsReportItem = zod.object({
 });
 
 export const ViolationsReportResponse = zod.array(ViolationsReportItem);
+
+export const PeripheralsReportItem = zod.object({
+  id: zod.number(),
+  type: zod.string(),
+  message: zod.string(),
+  actor: zod.string(),
+  computerName: zod.string().nullish(),
+  createdAt: zod.string(),
+});
+
+export const PeripheralsReportResponse = zod.array(PeripheralsReportItem);

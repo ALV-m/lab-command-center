@@ -5,12 +5,15 @@ A complete management dashboard for a computer lab: track computers, run operato
 ## Features
 
 - **Dashboard** — live lab summary, status distribution chart, recent alerts.
-- **Computers** — searchable/filterable list with per-machine actions (lock, unlock, restart, wake, send message, remote control, block/allow USB, push file, delete file, antivirus scan). New machines register automatically when the agent first runs.
+- **Computers** — searchable/filterable list with per-machine actions (lock, unlock, restart, wake, send message, remote control, block/allow USB, push file, delete file, security controls). New machines register automatically when the agent first runs.
 - **Alerts** — acknowledge and resolve alerts raised across the lab.
 - **USB policy** — set removable-media policy to allowed/blocked/review for all or selected computers; USB device connections are scanned and must be approved before they can be used.
-- **Reports** — attendance (student sign-in/out) and violations (blocked USB, unexpected devices, failed logins) with JSON + CSV export.
-- **Agent** — download `lab-agent.ps1` and install it on each lab PC; it reports heartbeat/status, tracks logins, scans and reports USB devices, and executes queued actions.
-- **Events** — an audit log of operator actions, logins, and USB events.
+- **Peripherals** — the agent inventories keyboards, mice, and monitors on first run; if one is removed, the PC shows a full-screen warning overlay to return it and an alert + event (with the current user) is recorded for the administrator. Live status on the Peripherals page.
+- **Security** — per-computer antivirus and firewall controls: quick/full scans, definition updates, real-time protection toggle, and firewall enable/disable, with reported status.
+- **Idle logout** — set an inactivity threshold (minutes); the agent logs the user out automatically when keyboard/mouse idle exceeds it.
+- **Reports** — attendance, violations, and peripheral event reports with JSON + CSV export.
+- **Agent** — download `lab-agent.ps1` and install it on each lab PC; it reports heartbeat/status, tracks logins, scans and reports USB devices, watches peripherals, and executes queued actions.
+- **Events** — an audit log of operator actions, logins, USB events, and peripheral connects/disconnects.
 - **Deployment** — a `render.yaml` blueprint for the web service with schema bootstrap and seed data.
 
 ## Tech stack
@@ -109,6 +112,7 @@ lab-command-center/
 | POST   | `/api/agent/heartbeat`            | Agent heartbeat; polls for actions      |
 | POST   | `/api/agent/actions/:id/complete` | Mark an action complete/failed          |
 | POST   | `/api/agent/events`               | Agent-reported events (login, USB, ...) |
+| POST   | `/api/agent/peripherals`          | Agent peripheral inventory snapshot     |
 | GET    | `/api/agent/files/download/:id`   | Download a file queued for a computer   |
 | GET    | `/api/lab/summary`                | Dashboard summary counters              |
 | GET    | `/api/lab/computers`              | List computers                          |
@@ -119,6 +123,9 @@ lab-command-center/
 | PATCH  | `/api/lab/usb-policies`           | Update the lab USB policy               |
 | GET    | `/api/lab/usb-devices`            | List USB devices (pending/decided)      |
 | POST   | `/api/lab/usb-devices/:id/decide` | Approve/deny a pending USB device       |
+| GET    | `/api/lab/peripherals`            | List tracked peripherals per computer   |
+| GET    | `/api/lab/settings`               | Read lab settings (idle logout)        |
+| PATCH  | `/api/lab/settings`               | Update lab settings                     |
 | GET    | `/api/lab/student-sessions`       | List student sessions                   |
 | POST   | `/api/lab/student-sessions`       | Start a session (sign a student in)     |
 | GET    | `/api/lab/events`                 | List recent audit events                |
@@ -126,8 +133,10 @@ lab-command-center/
 | GET    | `/api/reports/attendance.csv`     | Attendance report (CSV)                 |
 | GET    | `/api/reports/violations`         | Violations report (JSON)                |
 | GET    | `/api/reports/violations.csv`     | Violations report (CSV)                 |
+| GET    | `/api/reports/peripherals`        | Peripheral events report (JSON)         |
+| GET    | `/api/reports/peripherals.csv`    | Peripheral events report (CSV)          |
 
-Computer actions: `lock`, `unlock`, `restart`, `wake`, `send_message`, `remote_view`, `remote_control`, `block_usb`, `allow_usb`, `push_file`, `delete_file`, `av_scan`.
+Computer actions: `lock`, `unlock`, `restart`, `wake`, `send_message`, `remote_view`, `remote_control`, `block_usb`, `allow_usb`, `push_file`, `delete_file`, `av_scan`, `av_update`, `av_toggle`, `fw_enable`, `fw_disable`.
 
 All request/response bodies are validated with the Zod schemas in `lib/api-zod`.
 
@@ -151,7 +160,9 @@ All request/response bodies are validated with the Zod schemas in `lib/api-zod`.
    powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -Install -ServerUrl https://<your-app>.onrender.com
    ```
 
-The agent registers the PC (its name becomes the computer name in the dashboard), heartbeats every 30 seconds, reports USB device connections (scanning them with Windows Defender first), tracks student login/logout, and executes queued actions. `-ServerUrl` can be an `http://<ip>:<port>` address for a LAN deployment.
+The agent registers the PC (its name becomes the computer name in the dashboard), heartbeats every 30 seconds, reports USB device connections (scanning them with Windows Defender first), inventories keyboards/mice/monitors (showing a full-screen warning overlay on the PC when a baseline device is disconnected), tracks student login/logout, and executes queued actions. `-ServerUrl` can be an `http://<ip>:<port>` address for a LAN deployment.
+
+To enable automatic logout after inactivity, open the **Agent** page and set **Idle minutes** (0 disables it). Agents read the threshold from their heartbeat and log the user off when keyboard/mouse input has been idle for that long.
 
 ## Deploying to Render
 
@@ -159,7 +170,7 @@ The `render.yaml` blueprint defines the **web service** (free tier). It delibera
 
 Why it's safe to share a database:
 
-- Every table uses the `lab_` prefix (`lab_computers`, `lab_actions`, `lab_alerts`, `lab_usb_policies`, `lab_usb_devices`, `lab_student_sessions`, `lab_events`), so nothing collides with other apps' tables.
+- Every table uses the `lab_` prefix (`lab_computers`, `lab_actions`, `lab_alerts`, `lab_usb_policies`, `lab_usb_devices`, `lab_peripherals`, `lab_settings`, `lab_student_sessions`, `lab_events`), so nothing collides with other apps' tables.
 - Schema bootstrap is idempotent (`CREATE TABLE IF NOT EXISTS`).
 - The seed script exits early if `lab_computers` already has data, so it never re-seeds or overwrites anything.
 

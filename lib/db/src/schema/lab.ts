@@ -25,6 +25,8 @@ export const computersTable = pgTable("lab_computers", {
   avEnabled: boolean("av_enabled"),
   avSignature: text("av_signature"),
   avLastScanAt: timestamp("av_last_scan_at", { withTimezone: true }),
+  firewallEnabled: boolean("firewall_enabled"),
+  firewallProfiles: text("firewall_profiles"),
 });
 
 export const actionsTable = pgTable("lab_actions", {
@@ -90,6 +92,24 @@ export const usbDevicesTable = pgTable("lab_usb_devices", {
   decidedAt: timestamp("decided_at", { withTimezone: true }),
 });
 
+export const peripheralsTable = pgTable("lab_peripherals", {
+  id: serial("id").primaryKey(),
+  computerId: integer("computer_id").notNull(),
+  computerName: text("computer_name").notNull(),
+  kind: text("kind").notNull(),
+  name: text("name").notNull(),
+  instanceId: text("instance_id").notNull(),
+  present: boolean("present").notNull().default(true),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  lastChangedAt: timestamp("last_changed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const settingsTable = pgTable("lab_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const insertComputerSchema = createInsertSchema(computersTable).omit({ id: true });
 export const insertActionSchema = createInsertSchema(actionsTable).omit({ id: true, createdAt: true });
 export const insertAlertSchema = createInsertSchema(alertsTable).omit({ id: true, createdAt: true });
@@ -103,4 +123,5 @@ export type Alert = typeof alertsTable.$inferSelect;
 export type UsbPolicy = typeof usbPoliciesTable.$inferSelect;
 export type StudentSession = typeof studentSessionsTable.$inferSelect;
 export type LabEvent = typeof eventsTable.$inferSelect;
+export type Peripheral = typeof peripheralsTable.$inferSelect;
 export type InsertComputer = z.infer<typeof insertComputerSchema>;

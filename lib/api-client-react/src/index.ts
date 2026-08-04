@@ -1,6 +1,8 @@
 export * from "./generated/api";
 export * from "./generated/api.schemas";
 export * from "./reports";
+export * from "./peripherals";
+export * from "./settings";
 export * from "./usb-devices";
 export * from "./files";
 export { setBaseUrl, setAuthTokenGetter } from "./custom-fetch";

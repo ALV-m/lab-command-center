@@ -11,6 +11,7 @@ import {
   alertsTable,
   computersTable,
   eventsTable,
+  settingsTable,
   studentSessionsTable,
   usbDevicesTable,
   usbPoliciesTable,
@@ -191,6 +192,8 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
       avLastScanAt: body.data.avLastScanAt
         ? new Date(body.data.avLastScanAt)
         : computer.avLastScanAt,
+      firewallEnabled: body.data.firewallEnabled ?? computer.firewallEnabled,
+      firewallProfiles: body.data.firewallProfiles ?? computer.firewallProfiles,
     })
     .where(eq(computersTable.id, computer.id));
 
@@ -235,6 +238,17 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
     .orderBy(actionsTable.id)
     .limit(20);
 
+  const [idleSetting] = await db
+    .select()
+    .from(settingsTable)
+    .where(eq(settingsTable.key, "idle_logout_minutes"))
+    .limit(1);
+  const idleParsed = idleSetting ? Number(idleSetting.value) : NaN;
+  const idleLogoutMinutes =
+    idleSetting && Number.isFinite(idleParsed) && idleParsed > 0
+      ? Math.min(600, Math.floor(idleParsed))
+      : null;
+
   res.json(
     AgentHeartbeatResponse.parse({
       serverTime: new Date().toISOString(),
@@ -243,6 +257,8 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
         name: computer.name,
         status: "online",
         usbState: computer.usbState,
+        firewallEnabled: computer.firewallEnabled,
+        firewallProfiles: computer.firewallProfiles,
       },
       allowedUsb,
       pendingActions: pending.map((action) => ({
@@ -251,6 +267,7 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
         message: action.message,
         payload: action.payload,
       })),
+      idleLogoutMinutes,
     }),
   );
 });

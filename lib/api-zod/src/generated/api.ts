@@ -45,7 +45,12 @@ export const GetComputersResponseItem = zod.object({
   "peripherals": zod.object({
   "keyboard": zod.boolean(),
   "mouse": zod.boolean()
-})
+}),
+  "avEnabled": zod.boolean().nullable(),
+  "avSignature": zod.string().nullable(),
+  "avLastScanAt": zod.string().nullable(),
+  "firewallEnabled": zod.boolean().nullable(),
+  "firewallProfiles": zod.string().nullable()
 })
 export const GetComputersResponse = zod.array(GetComputersResponseItem)
 
@@ -58,7 +63,7 @@ export const CreateComputerActionParams = zod.object({
 })
 
 export const CreateComputerActionBody = zod.object({
-  "action": zod.enum(['lock', 'unlock', 'restart', 'wake', 'send_message', 'remote_view', 'remote_control', 'block_usb', 'allow_usb', 'push_file', 'delete_file', 'av_scan']),
+  "action": zod.enum(['lock', 'unlock', 'restart', 'wake', 'send_message', 'remote_view', 'remote_control', 'block_usb', 'allow_usb', 'push_file', 'delete_file', 'av_scan', 'av_update', 'av_toggle', 'fw_enable', 'fw_disable']),
   "message": zod.string().nullish(),
   "payload": zod.string().nullish()
 })
