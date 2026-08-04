@@ -68,12 +68,17 @@ export const ComputerActionInputAction = {
   remote_control: 'remote_control',
   block_usb: 'block_usb',
   allow_usb: 'allow_usb',
+  push_file: 'push_file',
+  delete_file: 'delete_file',
+  av_scan: 'av_scan',
 } as const;
 
 export interface ComputerActionInput {
   action: ComputerActionInputAction;
   /** @nullable */
   message?: string | null;
+  /** @nullable */
+  payload?: string | null;
 }
 
 export type ComputerActionStatus = typeof ComputerActionStatus[keyof typeof ComputerActionStatus];

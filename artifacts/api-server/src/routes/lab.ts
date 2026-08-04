@@ -1,5 +1,10 @@
 import { Router, type IRouter } from "express";
 import { and, desc, eq } from "drizzle-orm";
+import express from "express";
+import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { db } from "@workspace/db";
 import {
   actionsTable,
@@ -21,6 +26,8 @@ import {
   GetLabSummaryResponse,
   GetStudentSessionsResponse,
   GetUsbPoliciesResponse,
+  PushFileParams,
+  PushFileResponse,
   UpdateLabAlertBody,
   UpdateLabAlertParams,
   UpdateLabAlertResponse,
@@ -29,6 +36,14 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+const UPLOADS_DIR = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "data",
+  "uploads",
+);
+
+await mkdir(UPLOADS_DIR, { recursive: true });
 
 const iso = (value: Date | string | null | undefined) =>
   value instanceof Date ? value.toISOString() : value ?? null;
@@ -83,12 +98,23 @@ router.post("/lab/computers/:computerId/actions", async (req, res): Promise<void
     return;
   }
 
+  const [computer] = await db
+    .select()
+    .from(computersTable)
+    .where(eq(computersTable.id, params.data.computerId))
+    .limit(1);
+  if (!computer) {
+    res.status(404).json({ error: "Computer not found" });
+    return;
+  }
+
   const [action] = await db
     .insert(actionsTable)
     .values({
       computerId: params.data.computerId,
       action: body.data.action,
       message: body.data.message ?? null,
+      payload: body.data.payload ?? null,
       status: "queued",
     })
     .returning();
@@ -105,8 +131,9 @@ router.post("/lab/computers/:computerId/actions", async (req, res): Promise<void
 
   await db.insert(eventsTable).values({
     type: "operator_action",
-    message: `${body.data.action.replaceAll("_", " ")} queued for computer ${params.data.computerId}`,
+    message: `${body.data.action.replaceAll("_", " ")} queued for ${computer.name}`,
     actor: "Lab administrator",
+    computerName: computer.name,
   });
 
   res.status(201).json(
@@ -116,6 +143,64 @@ router.post("/lab/computers/:computerId/actions", async (req, res): Promise<void
     }),
   );
 });
+
+router.post(
+  "/lab/computers/:computerId/files",
+  express.raw({ type: () => true, limit: "64mb" }),
+  async (req, res): Promise<void> => {
+    const params = PushFileParams.safeParse(req.params);
+    if (!params.success || !Buffer.isBuffer(req.body)) {
+      res.status(400).json({ error: "Invalid upload" });
+      return;
+    }
+
+    const [computer] = await db
+      .select()
+      .from(computersTable)
+      .where(eq(computersTable.id, params.data.computerId))
+      .limit(1);
+    if (!computer) {
+      res.status(404).json({ error: "Computer not found" });
+      return;
+    }
+
+    const rawName = typeof req.headers["x-file-name"] === "string" ? req.headers["x-file-name"] : "";
+    let fileName = "file.bin";
+    try {
+      const decoded = decodeURIComponent(rawName).trim();
+      if (decoded) fileName = decoded;
+    } catch {
+      // fall back to the default name
+    }
+    const safeName = path.basename(fileName);
+
+    const fileId = randomUUID();
+    await writeFile(path.join(UPLOADS_DIR, fileId), req.body);
+    const size = req.body.byteLength;
+
+    const [action] = await db
+      .insert(actionsTable)
+      .values({
+        computerId: computer.id,
+        action: "push_file",
+        message: `Push file "${safeName}" to ${computer.name}`,
+        payload: JSON.stringify({ fileId, fileName: safeName, size }),
+        status: "queued",
+      })
+      .returning();
+
+    await db.insert(eventsTable).values({
+      type: "operator_action",
+      message: `File "${safeName}" (${size} bytes) queued for ${computer.name}`,
+      actor: "Lab administrator",
+      computerName: computer.name,
+    });
+
+    res.status(201).json(
+      PushFileResponse.parse({ actionId: action.id, fileName: safeName, size }),
+    );
+  },
+);
 
 router.get("/lab/alerts", async (_req, res): Promise<void> => {
   const alerts = await db.select().from(alertsTable).orderBy(desc(alertsTable.createdAt));
@@ -188,6 +273,12 @@ router.patch("/lab/usb-policies", async (req, res): Promise<void> => {
   if (body.data.scope === "all") {
     await db.update(computersTable).set({ usbState: body.data.mode === "allowed" ? "allowed" : "blocked" });
   }
+
+  await db.insert(eventsTable).values({
+    type: "usb_policy_change",
+    message: `USB policy set to ${body.data.mode} for ${body.data.scope === "all" ? "all computers" : "selected computers"}`,
+    actor: "Lab administrator",
+  });
 
   res.json(
     UpdateUsbPolicyResponse.parse({

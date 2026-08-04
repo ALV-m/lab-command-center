@@ -20,6 +20,11 @@ export const computersTable = pgTable("lab_computers", {
   usbState: text("usb_state").notNull().default("blocked"),
   keyboard: boolean("keyboard").notNull().default(true),
   mouse: boolean("mouse").notNull().default(true),
+  agentToken: text("agent_token"),
+  agentVersion: text("agent_version"),
+  avEnabled: boolean("av_enabled"),
+  avSignature: text("av_signature"),
+  avLastScanAt: timestamp("av_last_scan_at", { withTimezone: true }),
 });
 
 export const actionsTable = pgTable("lab_actions", {
@@ -28,6 +33,7 @@ export const actionsTable = pgTable("lab_actions", {
   action: text("action").notNull(),
   status: text("status").notNull().default("queued"),
   message: text("message"),
+  payload: text("payload"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -67,7 +73,21 @@ export const eventsTable = pgTable("lab_events", {
   type: text("type").notNull(),
   message: text("message").notNull(),
   actor: text("actor").notNull(),
+  computerName: text("computer_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const usbDevicesTable = pgTable("lab_usb_devices", {
+  id: serial("id").primaryKey(),
+  computerId: integer("computer_id").notNull(),
+  computerName: text("computer_name").notNull(),
+  deviceId: text("device_id"),
+  driveLetter: text("drive_letter"),
+  label: text("label"),
+  status: text("status").notNull().default("pending"),
+  scanResult: text("scan_result"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
 });
 
 export const insertComputerSchema = createInsertSchema(computersTable).omit({ id: true });

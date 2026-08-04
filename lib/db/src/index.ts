@@ -36,8 +36,20 @@ const DDL_STATEMENTS = [
     os text NOT NULL DEFAULT 'Windows 11 Pro',
     usb_state text NOT NULL DEFAULT 'blocked',
     keyboard boolean NOT NULL DEFAULT true,
-    mouse boolean NOT NULL DEFAULT true
+    mouse boolean NOT NULL DEFAULT true,
+    agent_token text,
+    agent_version text,
+    av_enabled boolean,
+    av_signature text,
+    av_last_scan_at timestamptz
   );
+  `,
+  `
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS agent_token text;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS agent_version text;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS av_enabled boolean;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS av_signature text;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS av_last_scan_at timestamptz;
   `,
   `
   CREATE TABLE IF NOT EXISTS lab_actions (
@@ -46,8 +58,12 @@ const DDL_STATEMENTS = [
     action text NOT NULL,
     status text NOT NULL DEFAULT 'queued',
     message text,
+    payload text,
     created_at timestamptz NOT NULL DEFAULT now()
   );
+  `,
+  `
+  ALTER TABLE lab_actions ADD COLUMN IF NOT EXISTS payload text;
   `,
   `
   CREATE TABLE IF NOT EXISTS lab_alerts (
@@ -89,7 +105,25 @@ const DDL_STATEMENTS = [
     type text NOT NULL,
     message text NOT NULL,
     actor text NOT NULL,
+    computer_name text,
     created_at timestamptz NOT NULL DEFAULT now()
+  );
+  `,
+  `
+  ALTER TABLE lab_events ADD COLUMN IF NOT EXISTS computer_name text;
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS lab_usb_devices (
+    id serial PRIMARY KEY,
+    computer_id integer NOT NULL,
+    computer_name text NOT NULL,
+    device_id text,
+    drive_letter text,
+    label text,
+    status text NOT NULL DEFAULT 'pending',
+    scan_result text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    decided_at timestamptz
   );
   `,
 ];

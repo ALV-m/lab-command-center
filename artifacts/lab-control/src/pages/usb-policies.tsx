@@ -4,15 +4,19 @@ import {
   getGetComputersQueryKey,
   getGetLabSummaryQueryKey,
   getGetUsbPoliciesQueryKey,
+  getUsbDevicesQueryKey,
   type UsbPolicyMode,
   type UsbPolicyScope,
+  useDecideUsbDevice,
   useGetComputers,
+  useGetUsbDevices,
   useGetUsbPolicies,
   useUpdateUsbPolicy,
 } from "@workspace/api-client-react";
-import { Save, ShieldCheck, ShieldOff } from "lucide-react";
+import { Check, Save, ShieldCheck, ShieldOff, Usb, X } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,13 +24,15 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
-import { timeAgo } from "@/lib/format";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { timeAgo, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 function UsbPolicies() {
   const queryClient = useQueryClient();
   const { data: policies, isLoading } = useGetUsbPolicies();
   const { data: computers } = useGetComputers();
+  const { data: usbDevices } = useGetUsbDevices();
 
   const policy = policies?.[0];
 
@@ -55,6 +61,20 @@ function UsbPolicies() {
       onError: (error) => toast.error(error.message),
     },
   });
+
+  const decideMutation = useDecideUsbDevice({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getUsbDevicesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetLabSummaryQueryKey() });
+        toast.success("USB decision saved");
+      },
+      onError: (error) => toast.error(error.message),
+    },
+  });
+
+  const pending = (usbDevices ?? []).filter((device) => device.status === "pending");
+  const decided = (usbDevices ?? []).filter((device) => device.status !== "pending").slice(0, 10);
 
   const toggleComputer = (id: number) => {
     setSelectedIds((current) =>
@@ -214,6 +234,125 @@ function UsbPolicies() {
                 </Button>
               </div>
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Usb className="size-4" />
+            USB device approvals
+          </CardTitle>
+          <CardDescription>
+            Removable devices the agent detected are scanned and held until approved. Ejected when
+            blocked.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {pending.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Awaiting review ({pending.length})</p>
+              <div className="rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Computer</TableHead>
+                      <TableHead>Device</TableHead>
+                      <TableHead>Detected</TableHead>
+                      <TableHead>Scan</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pending.map((device) => (
+                      <TableRow key={device.id}>
+                        <TableCell className="font-medium">{device.computerName}</TableCell>
+                        <TableCell>
+                          <span className="font-mono text-xs">
+                            {device.driveLetter ? `${device.driveLetter}: ` : ""}
+                          </span>
+                          {device.label ?? "Removable device"}
+                          {device.deviceId ? (
+                            <span className="block text-xs text-muted-foreground">{device.deviceId}</span>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="tabular-nums text-muted-foreground">
+                          {timeAgo(device.createdAt)}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {device.scanResult || "—"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              disabled={decideMutation.isPending}
+                              onClick={() =>
+                                decideMutation.mutate({ deviceId: device.id, data: { status: "approved" } })
+                              }
+                            >
+                              <Check className="size-4" />
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              disabled={decideMutation.isPending}
+                              onClick={() =>
+                                decideMutation.mutate({ deviceId: device.id, data: { status: "denied" } })
+                              }
+                            >
+                              <X className="size-4" />
+                              Deny
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No devices waiting for approval. When the agent detects a USB drive it will appear
+              here for review.
+            </p>
+          )}
+
+          {decided.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Recent decisions</p>
+              <div className="rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Computer</TableHead>
+                      <TableHead>Device</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Decided</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {decided.map((device) => (
+                      <TableRow key={device.id}>
+                        <TableCell className="font-medium">{device.computerName}</TableCell>
+                        <TableCell>{device.label ?? "Removable device"}</TableCell>
+                        <TableCell>
+                          <Badge variant={device.status === "approved" ? "default" : "destructive"}>
+                            {device.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="tabular-nums text-muted-foreground">
+                          {formatDateTime(device.decidedAt)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

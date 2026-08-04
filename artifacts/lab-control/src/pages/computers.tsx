@@ -7,19 +7,24 @@ import {
   type Computer,
   useCreateComputerAction,
   useGetComputers,
+  usePushFileToComputer,
 } from "@workspace/api-client-react";
 import {
   Ban,
   ChevronDown,
+  FileUp,
   Lock,
   Monitor,
+  MonitorPlay,
   MoreHorizontal,
   MousePointer2,
+  Radar,
   RefreshCcw,
   Search,
   Send,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   Unlock,
   Zap,
 } from "lucide-react";
@@ -72,6 +77,10 @@ function Computers() {
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
   const [messageTarget, setMessageTarget] = useState<Computer | null>(null);
   const [message, setMessage] = useState("");
+  const [fileTarget, setFileTarget] = useState<Computer | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Computer | null>(null);
+  const [deletePath, setDeletePath] = useState("");
 
   const actionMutation = useCreateComputerAction({
     mutation: {
@@ -79,6 +88,17 @@ function Computers() {
         queryClient.invalidateQueries({ queryKey: getGetComputersQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetLabSummaryQueryKey() });
         toast.success("Action queued");
+      },
+      onError: (error) => toast.error(error.message),
+    },
+  });
+
+  const fileMutation = usePushFileToComputer({
+    mutation: {
+      onSuccess: (result) => {
+        setFileTarget(null);
+        setSelectedFile(null);
+        toast.success(`Queued "${result.fileName}" for delivery`);
       },
       onError: (error) => toast.error(error.message),
     },
@@ -97,8 +117,8 @@ function Computers() {
     });
   }, [computers, search, statusFilter]);
 
-  const runAction = (computer: Computer, action: ComputerActionInputAction) => {
-    actionMutation.mutate({ computerId: computer.id, data: { action } });
+  const runAction = (computer: Computer, action: ComputerActionInputAction, payload?: string) => {
+    actionMutation.mutate({ computerId: computer.id, data: { action, payload } });
   };
 
   const sendMessage = () => {
@@ -115,6 +135,22 @@ function Computers() {
         },
       },
     );
+  };
+
+  const sendFile = () => {
+    if (!fileTarget || !selectedFile) return;
+    fileMutation.mutate({ computerId: fileTarget.id, file: selectedFile });
+  };
+
+  const confirmDelete = () => {
+    if (!deleteTarget || deletePath.trim().length === 0) return;
+    runAction(
+      deleteTarget,
+      ComputerActionInputAction.delete_file,
+      JSON.stringify({ path: deletePath.trim() }),
+    );
+    setDeleteTarget(null);
+    setDeletePath("");
   };
 
   return (
@@ -277,6 +313,38 @@ function Computers() {
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           disabled={actionMutation.isPending}
+                          onClick={() => runAction(computer, ComputerActionInputAction.remote_control)}
+                        >
+                          <MonitorPlay className="size-4" />
+                          Remote control (RDP)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={actionMutation.isPending}
+                          onClick={() => runAction(computer, ComputerActionInputAction.av_scan)}
+                        >
+                          <Radar className="size-4" />
+                          Run antivirus scan
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={fileMutation.isPending}
+                          onClick={() => setFileTarget(computer)}
+                        >
+                          <FileUp className="size-4" />
+                          Push file…
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={actionMutation.isPending}
+                          onClick={() => {
+                            setDeleteTarget(computer);
+                            setDeletePath("");
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                          Delete file…
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          disabled={actionMutation.isPending}
                           onClick={() => runAction(computer, ComputerActionInputAction.block_usb)}
                         >
                           <Ban className="size-4" />
@@ -320,6 +388,56 @@ function Computers() {
             <Button onClick={sendMessage} disabled={message.trim().length === 0 || actionMutation.isPending}>
               {actionMutation.isPending ? <Spinner className="size-4" /> : <Send className="size-4" />}
               Send
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={fileTarget !== null} onOpenChange={(open) => !open && setFileTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Push file to {fileTarget?.name}</DialogTitle>
+            <DialogDescription>
+              The file is uploaded to the server and delivered to the target computer's Downloads
+              folder when its agent checks in.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            type="file"
+            onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFileTarget(null)}>
+              Cancel
+            </Button>
+            <Button onClick={sendFile} disabled={!selectedFile || fileMutation.isPending}>
+              {fileMutation.isPending ? <Spinner className="size-4" /> : <FileUp className="size-4" />}
+              Queue file
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete file on {deleteTarget?.name}</DialogTitle>
+            <DialogDescription>
+              Enter the full path of the file or folder on the client PC to remove.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            placeholder="C:\Users\student\Downloads\example.exe"
+            value={deletePath}
+            onChange={(event) => setDeletePath(event.target.value)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deletePath.trim().length === 0 || actionMutation.isPending}>
+              <Trash2 className="size-4" />
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>

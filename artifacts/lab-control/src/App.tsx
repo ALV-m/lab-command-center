@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Activity,
   AlertTriangle,
+  Download,
+  FileText,
   LayoutDashboard,
   Monitor,
   Server,
@@ -14,11 +16,13 @@ import { Toaster } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import Agents from "@/pages/agents";
 import Alerts from "@/pages/alerts";
 import Computers from "@/pages/computers";
 import Dashboard from "@/pages/dashboard";
 import Events from "@/pages/events";
 import NotFound from "@/pages/not-found";
+import Reports from "@/pages/reports";
 import Sessions from "@/pages/sessions";
 import UsbPolicies from "@/pages/usb-policies";
 
@@ -38,7 +42,9 @@ const NAV_ITEMS = [
   { href: "/alerts", label: "Alerts", icon: AlertTriangle },
   { href: "/usb-policies", label: "USB Policy", icon: ShieldCheck },
   { href: "/sessions", label: "Sessions", icon: Users },
+  { href: "/reports", label: "Reports", icon: FileText },
   { href: "/events", label: "Events", icon: Activity },
+  { href: "/agents", label: "Agent", icon: Download },
 ];
 
 function LiveClock() {
@@ -141,7 +147,9 @@ function Layout() {
               <Route path="/alerts" component={Alerts} />
               <Route path="/usb-policies" component={UsbPolicies} />
               <Route path="/sessions" component={Sessions} />
+              <Route path="/reports" component={Reports} />
               <Route path="/events" component={Events} />
+              <Route path="/agents" component={Agents} />
               <Route component={NotFound} />
             </Switch>
           </main>

@@ -1,16 +1,17 @@
 # Lab Command Center
 
-A complete management dashboard for a computer lab: track computers, run operator actions (lock, unlock, restart, send messages), monitor alerts, control USB policies, and record student sessions — all behind one Express API that also serves the React frontend.
+A complete management dashboard for a computer lab: track computers, run operator actions (lock, unlock, restart, send messages, push files), monitor alerts, control USB policies with scan-before-use approval, and record student attendance and violations — all behind one Express API that also serves the React frontend. Each lab PC runs a zero-dependency PowerShell agent (`lab-agent.ps1`) that phones home to the server.
 
 ## Features
 
 - **Dashboard** — live lab summary, status distribution chart, recent alerts.
-- **Computers** — searchable/filterable list with per-machine actions (lock, unlock, restart, wake, send message, remote view, block/allow USB).
+- **Computers** — searchable/filterable list with per-machine actions (lock, unlock, restart, wake, send message, remote control, block/allow USB, push file, delete file, antivirus scan). New machines register automatically when the agent first runs.
 - **Alerts** — acknowledge and resolve alerts raised across the lab.
-- **USB policy** — set removable-media policy to allowed/blocked for all or selected computers.
-- **Sessions** — start and track student login sessions.
+- **USB policy** — set removable-media policy to allowed/blocked/review for all or selected computers; USB device connections are scanned and must be approved before they can be used.
+- **Reports** — attendance (student sign-in/out) and violations (blocked USB, unexpected devices, failed logins) with JSON + CSV export.
+- **Agent** — download `lab-agent.ps1` and install it on each lab PC; it reports heartbeat/status, tracks logins, scans and reports USB devices, and executes queued actions.
 - **Events** — an audit log of operator actions, logins, and USB events.
-- **Deployment** — a `render.yaml` blueprint provisions a PostgreSQL database and the web service with schema bootstrap and seed data.
+- **Deployment** — a `render.yaml` blueprint for the web service with schema bootstrap and seed data.
 
 ## Tech stack
 
@@ -103,6 +104,12 @@ lab-command-center/
 | Method | Path                              | Description                              |
 | ------ | --------------------------------- | ---------------------------------------- |
 | GET    | `/api/healthz`                    | Health check                            |
+| GET    | `/api/agent/download`             | Download `lab-agent.ps1`                |
+| POST   | `/api/agent/register`             | Register/re-key an agent + computer     |
+| POST   | `/api/agent/heartbeat`            | Agent heartbeat; polls for actions      |
+| POST   | `/api/agent/actions/:id/complete` | Mark an action complete/failed          |
+| POST   | `/api/agent/events`               | Agent-reported events (login, USB, ...) |
+| GET    | `/api/agent/files/download/:id`   | Download a file queued for a computer   |
 | GET    | `/api/lab/summary`                | Dashboard summary counters              |
 | GET    | `/api/lab/computers`              | List computers                          |
 | POST   | `/api/lab/computers/:id/actions`  | Queue an action for a computer          |
@@ -110,13 +117,41 @@ lab-command-center/
 | PATCH  | `/api/lab/alerts/:id`             | Update alert status                     |
 | GET    | `/api/lab/usb-policies`           | List USB policies                       |
 | PATCH  | `/api/lab/usb-policies`           | Update the lab USB policy               |
+| GET    | `/api/lab/usb-devices`            | List USB devices (pending/decided)      |
+| POST   | `/api/lab/usb-devices/:id/decide` | Approve/deny a pending USB device       |
 | GET    | `/api/lab/student-sessions`       | List student sessions                   |
 | POST   | `/api/lab/student-sessions`       | Start a session (sign a student in)     |
 | GET    | `/api/lab/events`                 | List recent audit events                |
+| GET    | `/api/reports/attendance`         | Attendance report (JSON)                |
+| GET    | `/api/reports/attendance.csv`     | Attendance report (CSV)                 |
+| GET    | `/api/reports/violations`         | Violations report (JSON)                |
+| GET    | `/api/reports/violations.csv`     | Violations report (CSV)                 |
 
-Computer actions: `lock`, `unlock`, `restart`, `wake`, `send_message`, `remote_view`, `remote_control`, `block_usb`, `allow_usb`.
+Computer actions: `lock`, `unlock`, `restart`, `wake`, `send_message`, `remote_view`, `remote_control`, `block_usb`, `allow_usb`, `push_file`, `delete_file`, `av_scan`.
 
 All request/response bodies are validated with the Zod schemas in `lib/api-zod`.
+
+## Installing the client agent
+
+1. After deploying, download the agent script:
+
+   ```sh
+   curl -o lab-agent.ps1 https://<your-app>.onrender.com/api/agent/download
+   ```
+
+2. On each lab PC (Windows PowerShell 5.1+), run once to test:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -ServerUrl https://<your-app>.onrender.com
+   ```
+
+3. To install it so it starts at every user logon:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -Install -ServerUrl https://<your-app>.onrender.com
+   ```
+
+The agent registers the PC (its name becomes the computer name in the dashboard), heartbeats every 30 seconds, reports USB device connections (scanning them with Windows Defender first), tracks student login/logout, and executes queued actions. `-ServerUrl` can be an `http://<ip>:<port>` address for a LAN deployment.
 
 ## Deploying to Render
 
@@ -124,7 +159,7 @@ The `render.yaml` blueprint defines the **web service** (free tier). It delibera
 
 Why it's safe to share a database:
 
-- Every table uses the `lab_` prefix (`lab_computers`, `lab_actions`, `lab_alerts`, `lab_usb_policies`, `lab_student_sessions`, `lab_events`), so nothing collides with other apps' tables.
+- Every table uses the `lab_` prefix (`lab_computers`, `lab_actions`, `lab_alerts`, `lab_usb_policies`, `lab_usb_devices`, `lab_student_sessions`, `lab_events`), so nothing collides with other apps' tables.
 - Schema bootstrap is idempotent (`CREATE TABLE IF NOT EXISTS`).
 - The seed script exits early if `lab_computers` already has data, so it never re-seeds or overwrites anything.
 
