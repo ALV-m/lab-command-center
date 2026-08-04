@@ -120,16 +120,25 @@ All request/response bodies are validated with the Zod schemas in `lib/api-zod`.
 
 ## Deploying to Render
 
-The `render.yaml` blueprint defines two resources:
+The `render.yaml` blueprint defines the **web service** (free tier). It deliberately does **not** provision a database — the app connects to a database you already run, so it plays nicely with your other projects on a shared Postgres.
 
-1. **PostgreSQL** — `lab-command-center-db` (free tier, database `lab_command_center`).
-2. **Web service** — `lab-command-center` (free tier):
-   - Build: `corepack enable && corepack prepare pnpm@11.11.0 --activate && pnpm install && pnpm run db:setup && pnpm run build`
-   - Start: `node artifacts/api-server/dist/index.mjs`
-   - Health check: `/api/healthz`
-   - Env: `NODE_VERSION=22.15.0`, `PNPM_VERSION=11.11.0`, `PORT=10000`, `BASE_PATH=/`, and `DATABASE_URL` wired to the provisioned database.
+Why it's safe to share a database:
 
-Connect the blueprint from the Render dashboard ("New → Blueprint") and point it at this repository. Deploys are automatic on push.
+- Every table uses the `lab_` prefix (`lab_computers`, `lab_actions`, `lab_alerts`, `lab_usb_policies`, `lab_student_sessions`, `lab_events`), so nothing collides with other apps' tables.
+- Schema bootstrap is idempotent (`CREATE TABLE IF NOT EXISTS`).
+- The seed script exits early if `lab_computers` already has data, so it never re-seeds or overwrites anything.
+
+To deploy:
+
+1. Render dashboard → **New → Blueprint** and connect the `lab-command-center` repository.
+2. Pick the repo; Render creates the `lab-command-center` web service (no database resource).
+3. Open the service → **Environment** → set `DATABASE_URL` to the connection string of the database you want to share:
+   - If it's another **Render Postgres**, use its **Internal Database URL** and connect that database to this service from the database's dashboard (Render manages the network access automatically).
+   - If it's an **external** database (e.g. Neon, Supabase, a VM), use its connection string and add the web service's IP range to the database's allowlist.
+4. First deploy runs `pnpm install && pnpm run db:setup && pnpm run build`, then starts the server. Health check `/api/healthz` marks it live.
+5. Future pushes to `main` auto-deploy.
+
+Note: the shared database must be reachable from Render — Render-managed databases and standard managed Postgres (Neon/Supabase) work out of the box.
 
 ## Verification
 

@@ -1,11 +1,14 @@
 # Lab Command Center — Render blueprint
-# Deploys the Express API + React dashboard together with a managed PostgreSQL.
+# Deploys the Express API + React dashboard.
+#
+# This blueprint deliberately does NOT provision a database. The app connects
+# to a database you already run (e.g. shared with your other Render projects
+# or a hosted Postgres). Set the connection string in the Render dashboard:
+#   Service -> Environment -> DATABASE_URL
+# The app never conflicts with other projects on a shared database because all
+# of its tables use the `lab_` prefix and the seed script skips non-empty
+# databases.
 # See https://render.com/docs/blueprint-spec
-databases:
-  - name: lab-command-center-db
-    plan: free
-    databaseName: lab_command_center
-
 services:
   - type: web
     name: lab-command-center
@@ -26,6 +29,4 @@ services:
       - key: BASE_PATH
         value: /
       - key: DATABASE_URL
-        fromDatabase:
-          name: lab-command-center-db
-          property: connectionString
+        sync: false
