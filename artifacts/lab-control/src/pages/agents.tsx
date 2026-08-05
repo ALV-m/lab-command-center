@@ -105,10 +105,6 @@ function Agents() {
 
   const saveSigninSetting = () => {
     const method = signinMethod || "password";
-    if (method === "shared_account" && (!sharedUser.trim() || !sharedPass)) {
-      toast.error("Enter the auto-login account username and password.");
-      return;
-    }
     settingsMutation.mutate({ data: signinPayload() });
   };
 
@@ -264,7 +260,7 @@ function Agents() {
             <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
               <div className="grid gap-1.5">
                 <label htmlFor="shared-user" className="text-sm font-medium">
-                  Auto-login account username
+                  Auto-login account username (optional)
                 </label>
                 <div className="relative">
                   <UserRound className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -272,7 +268,7 @@ function Agents() {
                     id="shared-user"
                     type="text"
                     autoComplete="off"
-                    placeholder="e.g. student"
+                    placeholder="leave blank to auto-generate"
                     value={sharedUser}
                     onChange={(event) => setSharedUser(event.target.value)}
                     className="pl-8"
@@ -281,7 +277,7 @@ function Agents() {
               </div>
               <div className="grid gap-1.5">
                 <label htmlFor="shared-pass" className="text-sm font-medium">
-                  Auto-login account password
+                  Auto-login account password (optional)
                 </label>
                 <div className="relative">
                   <KeyRound className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -289,7 +285,7 @@ function Agents() {
                     id="shared-pass"
                     type="password"
                     autoComplete="new-password"
-                    placeholder="••••••••"
+                    placeholder="leave blank to auto-generate"
                     value={sharedPass}
                     onChange={(event) => setSharedPass(event.target.value)}
                     className="pl-8"
@@ -297,9 +293,11 @@ function Agents() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground sm:col-span-2">
-                The agent creates this local Windows account on each PC if it does not exist, then
-                enables auto-login so every boot lands on this account. The login form is the only
-                barrier after that — no password prompt is shown.
+                Leave both blank and the server generates a random non-admin account ({" "}
+                {settings?.sharedAccountUser || "e.g. lab.student"}) automatically. The agent
+                creates it on each PC if missing and enables auto-login, so every boot lands
+                straight on the login form — the Windows password page never appears. If you supply
+                your own, they replace the generated ones.
               </p>
             </div>
           ) : null}
@@ -336,7 +334,7 @@ function Agents() {
           </Button>
           <p className="text-xs text-muted-foreground">
             {signinMethod === "shared_account"
-              ? `Auto-login account "${sharedUser || settings?.sharedAccountUser || "…"}": PCs boot to the login form instead of the Windows password page.`
+              ? `Auto-login account "${sharedUser || settings?.sharedAccountUser || "auto-generated"}": PCs boot to the login form instead of the Windows password page.`
               : "Each student signs into their own Windows account, then completes the login form."}
             {adminSecret || settings?.adminGateSecret
               ? " Administrator sign-in via the login form is enabled."

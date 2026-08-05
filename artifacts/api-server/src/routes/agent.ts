@@ -296,6 +296,28 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
         ? ("password" as const)
         : null;
 
+  // When the lab uses the "login form instead of password" method with no
+  // account configured, generate one automatically so agents can create the
+  // local account and set up auto-login without the administrator typing
+  // anything.
+  let autoShared: { user: string; password: string } | null = null;
+  if (signinMethod === "shared_account" && !(sharedUserSetting && sharedPassSetting)) {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    const bytes = randomBytes(18);
+    let password = "";
+    for (let i = 0; i < bytes.length; i++) password += chars[bytes[i] % chars.length];
+    const user = "lab.student";
+    await db
+      .insert(settingsTable)
+      .values({ key: "shared_account_user", value: user })
+      .onConflictDoUpdate({ target: settingsTable.key, set: { value: user } });
+    await db
+      .insert(settingsTable)
+      .values({ key: "shared_account_password", value: password })
+      .onConflictDoUpdate({ target: settingsTable.key, set: { value: password } });
+    autoShared = { user, password };
+  }
+
   res.json(
     AgentHeartbeatResponse.parse({
       serverTime: new Date().toISOString(),
@@ -308,8 +330,9 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
         firewallProfiles: computer.firewallProfiles,
         checkinRequired: computer.checkinRequired,
         signinMethod,
-        sharedAccountUser: signinMethod === "shared_account" ? sharedUserSetting : null,
-        sharedAccountPassword: signinMethod === "shared_account" ? sharedPassSetting : null,
+        sharedAccountUser: signinMethod === "shared_account" ? autoShared?.user ?? sharedUserSetting : null,
+        sharedAccountPassword:
+          signinMethod === "shared_account" ? autoShared?.password ?? sharedPassSetting : null,
       },
       allowedUsb,
       allowedDeviceIds,

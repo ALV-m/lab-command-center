@@ -1171,6 +1171,17 @@ function Set-SharedAutoLogon {
       Set-ItemProperty -LiteralPath $key -Name 'DefaultDomainName' -Value $targetDomain -Type String -Force
       $changed = $true
     }
+    # Windows 10/11: Windows Hello "passwordless sign-in" silently blocks
+    # AutoAdminLogon on password-protected accounts. Force the build version
+    # value to 0 so the account still auto-logs in and the login form shows.
+    $pwLessKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device'
+    $pwLessProps = Get-ItemProperty -LiteralPath $pwLessKey -ErrorAction SilentlyContinue
+    $currentPwLess = if ($pwLessProps -and $pwLessProps.PSObject.Properties.Name -contains 'DevicePasswordLessBuildVersion') { [int]$pwLessProps.DevicePasswordLessBuildVersion } else { $null }
+    if ($currentPwLess -ne 0) {
+      if (-not (Test-Path -LiteralPath $pwLessKey)) { New-Item -Path $pwLessKey -Force | Out-Null }
+      Set-ItemProperty -LiteralPath $pwLessKey -Name 'DevicePasswordLessBuildVersion' -Value 0 -Type DWord -Force
+      $changed = $true
+    }
   } catch {
     Write-Log ('Could not configure auto-login: {0}' -f $_.Exception.Message)
   }

@@ -67,8 +67,15 @@ router.patch("/lab/settings", async (req, res): Promise<void> => {
   }
   await writeSetting(IDLE_KEY, body.data.idleLogoutMinutes == null ? null : String(body.data.idleLogoutMinutes));
   await writeSetting(SIGNIN_KEY, body.data.signinMethod ?? null);
-  await writeSetting(SHARED_USER_KEY, body.data.sharedAccountUser ?? null);
-  await writeSetting(SHARED_PASS_KEY, body.data.sharedAccountPassword ?? null);
+  if (body.data.signinMethod === "shared_account") {
+    // Keep the auto-generated account if the administrator leaves the fields
+    // blank; only replace them when real credentials are supplied.
+    if (body.data.sharedAccountUser) await writeSetting(SHARED_USER_KEY, body.data.sharedAccountUser);
+    if (body.data.sharedAccountPassword) await writeSetting(SHARED_PASS_KEY, body.data.sharedAccountPassword);
+  } else {
+    await writeSetting(SHARED_USER_KEY, null);
+    await writeSetting(SHARED_PASS_KEY, null);
+  }
   await writeSetting(ADMIN_SECRET_KEY, body.data.adminGateSecret ?? null);
   res.json(
     UpdateLabSettingsResponse.parse({
