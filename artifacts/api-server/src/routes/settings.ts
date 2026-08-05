@@ -10,6 +10,9 @@ import {
 const router: IRouter = Router();
 
 const IDLE_KEY = "idle_logout_minutes";
+const SIGNIN_KEY = "signin_method";
+const SHARED_USER_KEY = "shared_account_user";
+const SHARED_PASS_KEY = "shared_account_password";
 
 async function readSetting(key: string): Promise<string | null> {
   const [row] = await db
@@ -39,8 +42,19 @@ async function idleLogoutMinutes(): Promise<number | null> {
   return Math.min(600, Math.floor(parsed));
 }
 
+async function signinMethod(): Promise<"password" | "shared_account" | null> {
+  return (await readSetting(SIGNIN_KEY)) as "password" | "shared_account" | null;
+}
+
 router.get("/lab/settings", async (_req, res): Promise<void> => {
-  res.json(GetLabSettingsResponse.parse({ idleLogoutMinutes: await idleLogoutMinutes() }));
+  res.json(
+    GetLabSettingsResponse.parse({
+      idleLogoutMinutes: await idleLogoutMinutes(),
+      signinMethod: await signinMethod(),
+      sharedAccountUser: await readSetting(SHARED_USER_KEY),
+      sharedAccountPassword: await readSetting(SHARED_PASS_KEY),
+    }),
+  );
 });
 
 router.patch("/lab/settings", async (req, res): Promise<void> => {
@@ -50,7 +64,17 @@ router.patch("/lab/settings", async (req, res): Promise<void> => {
     return;
   }
   await writeSetting(IDLE_KEY, body.data.idleLogoutMinutes == null ? null : String(body.data.idleLogoutMinutes));
-  res.json(UpdateLabSettingsResponse.parse({ idleLogoutMinutes: await idleLogoutMinutes() }));
+  await writeSetting(SIGNIN_KEY, body.data.signinMethod ?? null);
+  await writeSetting(SHARED_USER_KEY, body.data.sharedAccountUser ?? null);
+  await writeSetting(SHARED_PASS_KEY, body.data.sharedAccountPassword ?? null);
+  res.json(
+    UpdateLabSettingsResponse.parse({
+      idleLogoutMinutes: await idleLogoutMinutes(),
+      signinMethod: await signinMethod(),
+      sharedAccountUser: await readSetting(SHARED_USER_KEY),
+      sharedAccountPassword: await readSetting(SHARED_PASS_KEY),
+    }),
+  );
 });
 
 export default router;

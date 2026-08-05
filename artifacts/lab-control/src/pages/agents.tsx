@@ -1,17 +1,24 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getLabSettingsQueryKey,
   useGetLabSettings,
   useUpdateLabSettings,
 } from "@workspace/api-client-react";
-import { Copy, Download, ExternalLink, Play, Save, Terminal, Timer } from "lucide-react";
+import { Copy, Download, ExternalLink, KeyRound, Play, Save, Terminal, Timer, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 
 const AGENT_DOWNLOAD_URL = "/api/agent/download";
@@ -47,20 +54,40 @@ function Agents() {
     query: { queryKey: getLabSettingsQueryKey(), refetchInterval: 30_000 },
   });
   const [idleMinutes, setIdleMinutes] = useState("");
+  const [signinMethod, setSigninMethod] = useState<"password" | "shared_account" | "">("");
+  const [sharedUser, setSharedUser] = useState("");
+  const [sharedPass, setSharedPass] = useState("");
+  const [formInitialized, setFormInitialized] = useState(false);
+
+  useEffect(() => {
+    if (settings && !formInitialized) {
+      setSigninMethod(settings.signinMethod ?? "password");
+      setSharedUser(settings.sharedAccountUser ?? "");
+      setSharedPass(settings.sharedAccountPassword ?? "");
+      setFormInitialized(true);
+    }
+  }, [settings, formInitialized]);
 
   const settingsMutation = useUpdateLabSettings({
     mutation: {
       onSuccess: (result) => {
         queryClient.setQueryData(getLabSettingsQueryKey(), result);
-        toast.success(
-          result.idleLogoutMinutes
-            ? `Users will be logged off after ${result.idleLogoutMinutes} min of inactivity.`
-            : "Idle auto-logout disabled.",
-        );
+        toast.success("Settings saved.");
       },
       onError: (error) => toast.error(error.message),
     },
   });
+
+  const signinPayload = () => {
+    const method = signinMethod || settings?.signinMethod || "password";
+    const isShared = method === "shared_account";
+    return {
+      idleLogoutMinutes: settings?.idleLogoutMinutes ?? null,
+      signinMethod: method,
+      sharedAccountUser: isShared ? (sharedUser || settings?.sharedAccountUser || null) : null,
+      sharedAccountPassword: isShared ? (sharedPass || settings?.sharedAccountPassword || null) : null,
+    };
+  };
 
   const saveIdleSetting = () => {
     const parsed = Number(idleMinutes);
@@ -68,7 +95,18 @@ function Agents() {
       toast.error("Enter a whole number of minutes.");
       return;
     }
-    settingsMutation.mutate({ data: { idleLogoutMinutes: parsed === 0 ? null : Math.floor(parsed) } });
+    settingsMutation.mutate({
+      data: { ...signinPayload(), idleLogoutMinutes: parsed === 0 ? null : Math.floor(parsed) },
+    });
+  };
+
+  const saveSigninSetting = () => {
+    const method = signinMethod || "password";
+    if (method === "shared_account" && (!sharedUser.trim() || !sharedPass)) {
+      toast.error("Enter the shared account username and password.");
+      return;
+    }
+    settingsMutation.mutate({ data: signinPayload() });
   };
 
   return (
@@ -109,7 +147,8 @@ function Agents() {
             <li>Logs users out automatically after a configurable idle time</li>
             <li>Reports antivirus and firewall status; runs AV scans/updates and firewall toggles</li>
             <li>Watches the Security log and reports password changes and resets (4723/4724)</li>
-            <li>Removes the Windows auto-login setting so no password is skipped at boot</li>
+            <li>Removes the Windows auto-login setting by default, or auto-logs into a shared
+            account when the lab selects that sign-in method</li>
             <li>Remote actions: lock, restart, message, file push/delete, AV scan</li>
             <li>Enables Remote Desktop and reports IP for remote control</li>
           </ul>
@@ -191,6 +230,92 @@ function Agents() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
+            <KeyRound className="size-4" />
+            Sign-in method
+          </CardTitle>
+          <CardDescription>
+            Choose how students get into each lab PC. Applied on the agent's next heartbeat; a
+            reinstall of the agent is only needed when upgrading the script itself.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-1.5">
+            <label htmlFor="signin-method" className="text-sm font-medium">
+              Method
+            </label>
+            <Select
+              value={signinMethod || "password"}
+              onValueChange={(value) => setSigninMethod(value as "password" | "shared_account")}
+            >
+              <SelectTrigger id="signin-method" className="w-full max-w-sm">
+                <SelectValue placeholder="Choose a method" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="password">Windows password + check-in form</SelectItem>
+                <SelectItem value="shared_account">Shared auto-login account (check-in form only)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {signinMethod === "shared_account" ? (
+            <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <label htmlFor="shared-user" className="text-sm font-medium">
+                  Shared account username
+                </label>
+                <div className="relative">
+                  <UserRound className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="shared-user"
+                    type="text"
+                    autoComplete="off"
+                    placeholder="e.g. student"
+                    value={sharedUser}
+                    onChange={(event) => setSharedUser(event.target.value)}
+                    className="pl-8"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-1.5">
+                <label htmlFor="shared-pass" className="text-sm font-medium">
+                  Shared account password
+                </label>
+                <div className="relative">
+                  <KeyRound className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="shared-pass"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="••••••••"
+                    value={sharedPass}
+                    onChange={(event) => setSharedPass(event.target.value)}
+                    className="pl-8"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground sm:col-span-2">
+                The agent creates this local Windows account on each PC if it does not exist, then
+                enables auto-login so every boot lands on the shared account. The check-in form is
+                the only barrier after that.
+              </p>
+            </div>
+          ) : null}
+
+          <Button onClick={saveSigninSetting} disabled={settingsMutation.isPending}>
+            {settingsMutation.isPending ? <Spinner className="size-4" /> : <Save className="size-4" />}
+            Save sign-in method
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            {signinMethod === "shared_account"
+              ? `Shared account "${sharedUser || settings?.sharedAccountUser || "…"}": PCs will auto-login and show the check-in form only.`
+              : "Each student signs into their own Windows account, then completes the check-in form."}
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
             <ExternalLink className="size-4" />
             Notes
           </CardTitle>
@@ -217,6 +342,12 @@ function Agents() {
             check-in screen (name, phone, admission number, optional email and photo). "Unlock" clears
             the requirement and dismisses the form. The check-in screen also appears whenever a user
             signs in to a PC.
+          </p>
+          <p>
+            • With the "shared auto-login account" method, every PC boots into one shared Windows
+            account and the check-in form is the only barrier. It creates the account if missing and
+            turns auto-login on; switching back to "password" removes auto-login again. This shares a
+            single Windows profile across all students, so files are not isolated per student.
           </p>
           <p>
             • USB modes can be set per computer (allow / block / review). In "review" (quarantine),

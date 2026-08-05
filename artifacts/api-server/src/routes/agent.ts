@@ -276,6 +276,26 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
       ? Math.min(600, Math.floor(idleParsed))
       : null;
 
+  const settingValue = async (key: string): Promise<string | null> => {
+    const [row] = await db
+      .select({ value: settingsTable.value })
+      .from(settingsTable)
+      .where(eq(settingsTable.key, key))
+      .limit(1);
+    return row?.value ?? null;
+  };
+  const [signinSetting, sharedUserSetting, sharedPassSetting] = await Promise.all([
+    settingValue("signin_method"),
+    settingValue("shared_account_user"),
+    settingValue("shared_account_password"),
+  ]);
+  const signinMethod =
+    signinSetting === "shared_account"
+      ? ("shared_account" as const)
+      : signinSetting === "password"
+        ? ("password" as const)
+        : null;
+
   res.json(
     AgentHeartbeatResponse.parse({
       serverTime: new Date().toISOString(),
@@ -287,6 +307,9 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
         firewallEnabled: computer.firewallEnabled,
         firewallProfiles: computer.firewallProfiles,
         checkinRequired: computer.checkinRequired,
+        signinMethod,
+        sharedAccountUser: signinMethod === "shared_account" ? sharedUserSetting : null,
+        sharedAccountPassword: signinMethod === "shared_account" ? sharedPassSetting : null,
       },
       allowedUsb,
       allowedDeviceIds,

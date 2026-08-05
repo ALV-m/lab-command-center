@@ -19,6 +19,16 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 export interface LabSettings {
   idleLogoutMinutes: number | null;
+  signinMethod: "password" | "shared_account" | null;
+  sharedAccountUser: string | null;
+  sharedAccountPassword: string | null;
+}
+
+export interface UpdateLabSettingsInput {
+  idleLogoutMinutes?: number | null;
+  signinMethod?: "password" | "shared_account" | null;
+  sharedAccountUser?: string | null;
+  sharedAccountPassword?: string | null;
 }
 
 export const getLabSettingsUrl = (): string => "/api/lab/settings";
@@ -59,7 +69,7 @@ export const useGetLabSettings = <TData = Awaited<ReturnType<typeof getLabSettin
 export const updateLabSettingsUrl = (): string => "/api/lab/settings";
 
 export const updateLabSettings = async (
-  data: BodyType<{ idleLogoutMinutes: number | null }>,
+  data: BodyType<UpdateLabSettingsInput>,
   options?: Parameters<typeof customFetch>[1],
 ): Promise<LabSettings> => {
   return customFetch<LabSettings>(updateLabSettingsUrl(), {
@@ -75,7 +85,7 @@ export const getUpdateLabSettingsMutationOptions = <TError = ErrorType<unknown>,
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof updateLabSettings>>,
       TError,
-      { data: BodyType<{ idleLogoutMinutes: number | null }> },
+      { data: BodyType<UpdateLabSettingsInput> },
       TContext
     >;
     request?: SecondParameter<typeof customFetch>;
@@ -83,7 +93,7 @@ export const getUpdateLabSettingsMutationOptions = <TError = ErrorType<unknown>,
 ): UseMutationOptions<
   Awaited<ReturnType<typeof updateLabSettings>>,
   TError,
-  { data: BodyType<{ idleLogoutMinutes: number | null }> },
+  { data: BodyType<UpdateLabSettingsInput> },
   TContext
 > => {
   const mutationKey = ["updateLabSettings"];
@@ -95,7 +105,7 @@ export const getUpdateLabSettingsMutationOptions = <TError = ErrorType<unknown>,
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof updateLabSettings>>,
-    { data: BodyType<{ idleLogoutMinutes: number | null }> }
+    { data: BodyType<UpdateLabSettingsInput> }
   > = (props) => {
     const { data } = props ?? {};
     return updateLabSettings(data, requestOptions);
@@ -109,7 +119,7 @@ export const useUpdateLabSettings = <TError = ErrorType<unknown>, TContext = unk
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof updateLabSettings>>,
       TError,
-      { data: BodyType<{ idleLogoutMinutes: number | null }> },
+      { data: BodyType<UpdateLabSettingsInput> },
       TContext
     >;
     request?: SecondParameter<typeof customFetch>;
@@ -117,6 +127,6 @@ export const useUpdateLabSettings = <TError = ErrorType<unknown>, TContext = unk
 ): UseMutationResult<
   Awaited<ReturnType<typeof updateLabSettings>>,
   TError,
-  { data: BodyType<{ idleLogoutMinutes: number | null }> },
+  { data: BodyType<UpdateLabSettingsInput> },
   TContext
 > => useMutation(getUpdateLabSettingsMutationOptions(options));

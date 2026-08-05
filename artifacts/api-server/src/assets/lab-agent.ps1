@@ -18,7 +18,10 @@
 #     after an administrator lock, and records it with the server
 #   * monitors the Security log for local account password changes (4723) and
 #     password resets (4724) and reports them as alerts/events
-#   * disables Windows auto-login at boot so PCs always land on the login page
+#   * applies the lab sign-in method: by default it disables Windows auto-login
+#     so PCs land on the login page; with the shared-account method it creates a
+#     shared local account and enables auto-login so the check-in form is the
+#     only barrier at boot
 #   * logs the console user out automatically after a configurable idle time
 #   * runs antivirus scans as background jobs and reports scanning status
 #   * executes remote actions (lock, restart, message, file push/delete, AV
@@ -46,7 +49,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.3.0'
+$script:AgentVersion = '1.4.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $AgentPath = Join-Path $ConfigDir 'lab-agent.ps1'
@@ -1036,23 +1039,82 @@ function Remove-AutoLogon {
   return $changed
 }
 
-function Enforce-AutoLogon {
-  # Disables auto-login at boot so the PC always shows the login screen.
-  $cleaned = Remove-AutoLogon
+function Ensure-SharedAccount {
+  param([string]$UserName, [string]$Password)
+  try {
+    if (-not (Get-LocalUser -Name $UserName -ErrorAction SilentlyContinue)) {
+      New-LocalUser -Name $UserName -Password (ConvertTo-SecureString $Password -AsPlainText -Force) -PasswordNeverExpires -AccountNeverExpires | Out-Null
+      Write-Log ('Created shared local account {0}' -f $UserName)
+    }
+    Add-LocalGroupMember -Group 'Users' -Member $UserName -ErrorAction SilentlyContinue
+    return $true
+  } catch {
+    Write-Log ('Could not ensure shared account {0}: {1}' -f $UserName, $_.Exception.Message)
+    return $false
+  }
+}
+
+function Set-SharedAutoLogon {
+  param([string]$UserName, [string]$Password)
+  $key = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+  $changed = $false
+  try {
+    $props = Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
+    $currentAuto = if ($props.PSObject.Properties.Name -contains 'AutoAdminLogon') { [string]$props.AutoAdminLogon } else { '' }
+    $currentUser = if ($props.PSObject.Properties.Name -contains 'DefaultUserName') { [string]$props.DefaultUserName } else { '' }
+    $currentPass = if ($props.PSObject.Properties.Name -contains 'DefaultPassword') { [string]$props.DefaultPassword } else { '' }
+    $currentDomain = if ($props.PSObject.Properties.Name -contains 'DefaultDomainName') { [string]$props.DefaultDomainName } else { '' }
+    $targetDomain = $env:COMPUTERNAME
+    if ($currentAuto -ne '1' -or $currentUser -ne $UserName -or $currentPass -ne $Password -or $currentDomain -ne $targetDomain) {
+      Set-ItemProperty -LiteralPath $key -Name 'AutoAdminLogon' -Value '1' -Type String -Force
+      Set-ItemProperty -LiteralPath $key -Name 'DefaultUserName' -Value $UserName -Type String -Force
+      Set-ItemProperty -LiteralPath $key -Name 'DefaultPassword' -Value $Password -Type String -Force
+      Set-ItemProperty -LiteralPath $key -Name 'DefaultDomainName' -Value $targetDomain -Type String -Force
+      $changed = $true
+    }
+  } catch {
+    Write-Log ('Could not configure auto-login: {0}' -f $_.Exception.Message)
+  }
+  return $changed
+}
+
+function Apply-SigninMethod {
+  # Enforces the lab's sign-in method: shared-account auto-login when configured,
+  # otherwise it disables auto-login so the PC always shows the login page.
   $cfg = Get-Config
   if (-not $cfg) { return }
-  $alreadyCleaned = ($cfg.PSObject.Properties.Name -contains 'autoLogonCleaned') -and $cfg.autoLogonCleaned
-  if ($cleaned) {
-    if (-not $alreadyCleaned) {
-      $body = @{ token = $cfg.token; type = 'autologon'; message = 'Auto-login disabled at boot on {0}' -f $env:COMPUTERNAME; detail = 'Removed AutoAdminLogon/Default* values from Winlogon' }
-      try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $body | Out-Null } catch {}
-      Write-Log 'Auto-login was enabled; disabled so the PC shows the login page.'
+  $method = ''
+  if ($cfg.PSObject.Properties.Name -contains 'signinMethod') { $method = [string]$cfg.signinMethod }
+  $user = ''
+  if ($cfg.PSObject.Properties.Name -contains 'sharedAccountUser') { $user = [string]$cfg.sharedAccountUser }
+  $pass = ''
+  if ($cfg.PSObject.Properties.Name -contains 'sharedAccountPassword') { $pass = [string]$cfg.sharedAccountPassword }
+  if ($method -eq 'shared_account' -and $user -and $pass) {
+    if (Ensure-SharedAccount -UserName $user -Password $pass) {
+      $enabled = Set-SharedAutoLogon -UserName $user -Password $pass
+      $cfg | Add-Member -NotePropertyName autoLogonCleaned -NotePropertyValue $false -Force
+      Save-Config $cfg
+      if ($enabled) {
+        $body = @{ token = $cfg.token; type = 'autologon'; message = 'Shared auto-login enabled on {0}' -f $env:COMPUTERNAME; detail = ('Auto-login set for {0}' -f $user) }
+        try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $body | Out-Null } catch {}
+        Write-Log ('Shared auto-login configured for {0}' -f $user)
+      }
     }
-    $cfg | Add-Member -NotePropertyName autoLogonCleaned -NotePropertyValue $true -Force
   } else {
-    $cfg | Add-Member -NotePropertyName autoLogonCleaned -NotePropertyValue $false -Force
+    $cleaned = Remove-AutoLogon
+    $alreadyCleaned = ($cfg.PSObject.Properties.Name -contains 'autoLogonCleaned') -and $cfg.autoLogonCleaned
+    if ($cleaned) {
+      if (-not $alreadyCleaned) {
+        $body = @{ token = $cfg.token; type = 'autologon'; message = 'Auto-login disabled on {0}' -f $env:COMPUTERNAME; detail = 'Removed AutoAdminLogon/Default* values from Winlogon' }
+        try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $body | Out-Null } catch {}
+        Write-Log 'Auto-login was enabled; disabled so the PC shows the login page.'
+      }
+      $cfg | Add-Member -NotePropertyName autoLogonCleaned -NotePropertyValue $true -Force
+    } else {
+      $cfg | Add-Member -NotePropertyName autoLogonCleaned -NotePropertyValue $false -Force
+    }
+    Save-Config $cfg
   }
-  Save-Config $cfg
 }
 
 function Execute-Action {
@@ -1268,10 +1330,10 @@ $script:seenUsb = @()
 
 Write-Log ('Agent v{0} running for {1} -> {2}' -f $script:AgentVersion, $config.name, $ServerUrl)
 
-# Boot-time tasks: enable security auditing and disable any auto-login.
+# Boot-time tasks: enable security auditing and apply the lab sign-in method.
 Ensure-AuditPolicy
 $script:lastAuditCheck = Get-Date
-Enforce-AutoLogon
+Apply-SigninMethod
 
 try {
   while ($true) {
@@ -1304,6 +1366,16 @@ try {
           Execute-Action $action
         }
       }
+
+      # ---- sign-in method (auto-login) --------------------------------------
+      $cfgNow = Get-Config
+      if ($cfgNow -and $null -ne $hb.computer.signinMethod) {
+        $cfgNow | Add-Member -NotePropertyName signinMethod -NotePropertyValue ([string]$hb.computer.signinMethod) -Force
+        $cfgNow | Add-Member -NotePropertyName sharedAccountUser -NotePropertyValue ([string]$hb.computer.sharedAccountUser) -Force
+        $cfgNow | Add-Member -NotePropertyName sharedAccountPassword -NotePropertyValue ([string]$hb.computer.sharedAccountPassword) -Force
+        Save-Config $cfgNow
+      }
+      Apply-SigninMethod
 
       # ---- check-in gate -----------------------------------------------------
       $isSystemUser = ($user -match '(?i)^nt authority\\') -or ($user -match '\$$')
