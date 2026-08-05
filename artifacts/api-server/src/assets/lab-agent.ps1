@@ -49,7 +49,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.4.0'
+$script:AgentVersion = '1.5.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $AgentPath = Join-Path $ConfigDir 'lab-agent.ps1'
@@ -565,6 +565,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $script:submitted = $false
 $script:photoFileId = ''
+$script:role = 'student'
 
 function Read-Token {
   try {
@@ -585,7 +586,7 @@ function Upload-Photo {
 }
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Student check-in required'
+$form.Text = 'Sign in to use this computer'
 $form.WindowState = [System.Windows.Forms.FormWindowState]::Maximized
 $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 $form.TopMost = $true
@@ -626,9 +627,6 @@ function New-Heading {
   return $label
 }
 
-$flow.Controls.Add((New-Heading -Text 'STUDENT CHECK-IN REQUIRED' -Color ([System.Drawing.Color]::FromArgb(200, 30, 30)) -Size 30))
-$flow.Controls.Add((New-Heading -Text 'You must fill in the details below before you can use this computer.' -Color ([System.Drawing.Color]::FromArgb(80, 80, 90)) -Size 13))
-
 function New-Textbox {
   param([string]$Placeholder, [bool]$Required = $true)
   $box = New-Object System.Windows.Forms.TextBox
@@ -638,19 +636,53 @@ function New-Textbox {
   return $box
 }
 
+$flow.Controls.Add((New-Heading -Text 'SIGN IN TO USE THIS COMPUTER' -Color ([System.Drawing.Color]::FromArgb(200, 30, 30)) -Size 28))
+$flow.Controls.Add((New-Heading -Text 'Choose Student or Administrator and complete the form before using this computer.' -Color ([System.Drawing.Color]::FromArgb(80, 80, 90)) -Size 13))
+
+$tabs = New-Object System.Windows.Forms.TabControl
+$tabs.Dock = [System.Windows.Forms.DockStyle]::Top
+$tabs.Height = 430
+$tabs.Font = New-Object System.Drawing.Font('Segoe UI', 11)
+$tabs.Margin = New-Object System.Windows.Forms.Padding(0, 10, 0, 0)
+$flow.Controls.Add($tabs)
+
+$tabStudent = New-Object System.Windows.Forms.TabPage
+$tabStudent.Text = 'Student'
+$tabStudent.BackColor = [System.Drawing.Color]::White
+$tabs.TabPages.Add($tabStudent)
+
+$tabAdmin = New-Object System.Windows.Forms.TabPage
+$tabAdmin.Text = 'Administrator'
+$tabAdmin.BackColor = [System.Drawing.Color]::White
+$tabs.TabPages.Add($tabAdmin)
+
+$tabs.Add_SelectedIndexChanged({
+  param($sender, $e)
+  if ($tabs.SelectedTab -eq $tabAdmin) { $script:role = 'admin' } else { $script:role = 'student' }
+})
+
+$studentFlow = New-Object System.Windows.Forms.FlowLayoutPanel
+$studentFlow.Dock = [System.Windows.Forms.DockStyle]::Fill
+$studentFlow.FlowDirection = [System.Windows.Forms.FlowDirection]::TopDown
+$studentFlow.WrapContents = $false
+$studentFlow.AutoScroll = $true
+$studentFlow.Padding = New-Object System.Windows.Forms.Padding(8)
+$studentFlow.BackColor = [System.Drawing.Color]::White
+$tabStudent.Controls.Add($studentFlow)
+
 $nameBox = New-Textbox
 $phoneBox = New-Textbox
 $admissionBox = New-Textbox
 $emailBox = New-Textbox
 
-$flow.Controls.Add((New-Heading -Text 'Full name *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
-$flow.Controls.Add($nameBox)
-$flow.Controls.Add((New-Heading -Text 'Phone number *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
-$flow.Controls.Add($phoneBox)
-$flow.Controls.Add((New-Heading -Text 'Admission / ID number *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
-$flow.Controls.Add($admissionBox)
-$flow.Controls.Add((New-Heading -Text 'Email (optional)' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
-$flow.Controls.Add($emailBox)
+$studentFlow.Controls.Add((New-Heading -Text 'Full name *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
+$studentFlow.Controls.Add($nameBox)
+$studentFlow.Controls.Add((New-Heading -Text 'Phone number *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
+$studentFlow.Controls.Add($phoneBox)
+$studentFlow.Controls.Add((New-Heading -Text 'Admission / ID number *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
+$studentFlow.Controls.Add($admissionBox)
+$studentFlow.Controls.Add((New-Heading -Text 'Email (optional)' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
+$studentFlow.Controls.Add($emailBox)
 
 $photoRow = New-Object System.Windows.Forms.FlowLayoutPanel
 $photoRow.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
@@ -689,7 +721,33 @@ $photoButton.Add_Click({
 
 $photoRow.Controls.Add($photoButton)
 $photoRow.Controls.Add($photoBox)
-$flow.Controls.Add($photoRow)
+$studentFlow.Controls.Add($photoRow)
+
+$adminFlow = New-Object System.Windows.Forms.FlowLayoutPanel
+$adminFlow.Dock = [System.Windows.Forms.DockStyle]::Fill
+$adminFlow.FlowDirection = [System.Windows.Forms.FlowDirection]::TopDown
+$adminFlow.WrapContents = $false
+$adminFlow.AutoScroll = $true
+$adminFlow.Padding = New-Object System.Windows.Forms.Padding(8)
+$adminFlow.BackColor = [System.Drawing.Color]::White
+$tabAdmin.Controls.Add($adminFlow)
+
+$adminUserBox = New-Object System.Windows.Forms.TextBox
+$adminUserBox.Font = New-Object System.Drawing.Font('Segoe UI', 14)
+$adminUserBox.Width = 380
+$adminUserBox.Margin = New-Object System.Windows.Forms.Padding(0, 4, 0, 4)
+
+$adminPassBox = New-Object System.Windows.Forms.TextBox
+$adminPassBox.Font = New-Object System.Drawing.Font('Segoe UI', 14)
+$adminPassBox.Width = 380
+$adminPassBox.Margin = New-Object System.Windows.Forms.Padding(0, 4, 0, 4)
+$adminPassBox.UseSystemPasswordChar = $true
+
+$adminFlow.Controls.Add((New-Heading -Text 'Administrator username *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
+$adminFlow.Controls.Add($adminUserBox)
+$adminFlow.Controls.Add((New-Heading -Text 'Passphrase *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
+$adminFlow.Controls.Add($adminPassBox)
+$adminFlow.Controls.Add((New-Heading -Text 'Signing in as administrator records the sign-in in the check-in log and opens the lab dashboard for managing computers.' -Color ([System.Drawing.Color]::FromArgb(120, 120, 130)) -Size 11))
 
 $status = New-Object System.Windows.Forms.Label
 $status.ForeColor = [System.Drawing.Color]::FromArgb(200, 30, 30)
@@ -699,7 +757,7 @@ $status.Margin = New-Object System.Windows.Forms.Padding(0, 8, 0, 0)
 $flow.Controls.Add($status)
 
 $submit = New-Object System.Windows.Forms.Button
-$submit.Text = 'Check in'
+$submit.Text = 'Sign in'
 $submit.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
 $submit.BackColor = [System.Drawing.Color]::FromArgb(24, 108, 220)
 $submit.ForeColor = [System.Drawing.Color]::White
@@ -707,33 +765,74 @@ $submit.Width = 200
 $submit.Height = 46
 $submit.Margin = New-Object System.Windows.Forms.Padding(0, 14, 0, 0)
 $submit.Add_Click({
-  $name = $nameBox.Text.Trim()
-  $phone = $phoneBox.Text.Trim()
-  $admission = $admissionBox.Text.Trim()
-  if (-not $name -or -not $phone -or -not $admission) {
-    $status.Text = 'Please fill in your name, phone number, and admission number.'
-    return
-  }
-  $submit.Enabled = $false
-  $status.Text = 'Submitting…'
-  try {
-    $token = Read-Token
-    $body = @{
-      token = $token
-      userName = $UserName
-      studentName = $name
-      phone = $phone
-      admissionNo = $admission
-      email = ($emailBox.Text.Trim() -replace '\s+', ' ')
-      photoFileId = $script:photoFileId
+  if ($script:role -eq 'admin') {
+    $adminUser = $adminUserBox.Text.Trim()
+    $adminPass = $adminPassBox.Text
+    if (-not $adminUser -or -not $adminPass) {
+      $status.Text = 'Enter your administrator username and passphrase.'
+      return
     }
-    $json = $body | ConvertTo-Json -Compress -Depth 4
-    Invoke-RestMethod -Uri ('{0}/api/agent/checkin' -f $ServerUrl) -Method Post -ContentType 'application/json' -Body $json -TimeoutSec 60 | Out-Null
-    $script:submitted = $true
-    $form.Close()
-  } catch {
-    $status.Text = 'Could not reach the server. Try again in a moment.'
-    $submit.Enabled = $true
+    $submit.Enabled = $false
+    $status.Text = 'Signing in…'
+    try {
+      $token = Read-Token
+      $body = @{
+        token = $token
+        userName = $UserName
+        role = 'admin'
+        studentName = $adminUser
+        adminUser = $adminUser
+        adminPass = $adminPass
+      }
+      $json = $body | ConvertTo-Json -Compress -Depth 4
+      $resp = Invoke-RestMethod -Uri ('{0}/api/agent/checkin' -f $ServerUrl) -Method Post -ContentType 'application/json' -Body $json -TimeoutSec 60
+      if ($resp.ok) {
+        $script:submitted = $true
+        $form.Close()
+        Start-Process ('{0}/' -f $ServerUrl) -ErrorAction SilentlyContinue
+      } else {
+        $status.Text = [string]$resp.error
+        $submit.Enabled = $true
+      }
+    } catch {
+      $status.Text = 'Could not reach the server. Try again in a moment.'
+      $submit.Enabled = $true
+    }
+  } else {
+    $name = $nameBox.Text.Trim()
+    $phone = $phoneBox.Text.Trim()
+    $admission = $admissionBox.Text.Trim()
+    if (-not $name -or -not $phone -or -not $admission) {
+      $status.Text = 'Please fill in your name, phone number, and admission number.'
+      return
+    }
+    $submit.Enabled = $false
+    $status.Text = 'Submitting…'
+    try {
+      $token = Read-Token
+      $body = @{
+        token = $token
+        userName = $UserName
+        role = 'student'
+        studentName = $name
+        phone = $phone
+        admissionNo = $admission
+        email = ($emailBox.Text.Trim() -replace '\s+', ' ')
+        photoFileId = $script:photoFileId
+      }
+      $json = $body | ConvertTo-Json -Compress -Depth 4
+      $resp = Invoke-RestMethod -Uri ('{0}/api/agent/checkin' -f $ServerUrl) -Method Post -ContentType 'application/json' -Body $json -TimeoutSec 60
+      if ($resp.ok) {
+        $script:submitted = $true
+        $form.Close()
+      } else {
+        $status.Text = [string]$resp.error
+        $submit.Enabled = $true
+      }
+    } catch {
+      $status.Text = 'Could not reach the server. Try again in a moment.'
+      $submit.Enabled = $true
+    }
   }
 })
 $flow.Controls.Add($submit)

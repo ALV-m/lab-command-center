@@ -25,9 +25,9 @@ function Checkins() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Student check-ins</h1>
+        <h1 className="text-2xl font-bold">Check-ins</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Sign-ins submitted from each PC's check-in screen (name, phone, admission number, photo).
+          Sign-ins submitted from each PC's login screen (student details or administrator sign-in).
         </p>
       </div>
 
@@ -38,8 +38,7 @@ function Checkins() {
             Check-in log
           </CardTitle>
           <CardDescription>
-            Students must complete this form before using a PC and again after an administrator
-            lock.
+            Users must complete this form before using a PC and again after an administrator lock.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -57,7 +56,8 @@ function Checkins() {
                 </EmptyMedia>
                 <EmptyTitle>No check-ins yet</EmptyTitle>
                 <EmptyDescription>
-                  When a student signs in on a PC running the agent, it will appear here.
+                  When a student or administrator signs in on a PC running the agent, it will appear
+                  here.
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
@@ -66,7 +66,8 @@ function Checkins() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Photo</TableHead>
-                  <TableHead>Student</TableHead>
+                  <TableHead>User</TableHead>
+                  <TableHead>Role</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Admission / ID</TableHead>
                   <TableHead>Email</TableHead>
@@ -91,8 +92,15 @@ function Checkins() {
                       )}
                     </TableCell>
                     <TableCell className="font-medium">{checkin.studentName}</TableCell>
-                    <TableCell className="tabular-nums">{checkin.phone}</TableCell>
-                    <TableCell className="font-mono text-xs">{checkin.admissionNo}</TableCell>
+                    <TableCell>
+                      {checkin.role === "admin" ? (
+                        <Badge className="bg-violet-600 text-white">Admin</Badge>
+                      ) : (
+                        <Badge variant="secondary">Student</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="tabular-nums">{checkin.phone || "—"}</TableCell>
+                    <TableCell className="font-mono text-xs">{checkin.admissionNo || "—"}</TableCell>
                     <TableCell className="text-muted-foreground">{checkin.email || "—"}</TableCell>
                     <TableCell>
                       <span className="flex items-center gap-2">

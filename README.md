@@ -5,16 +5,17 @@ A complete management dashboard for a computer lab: track computers, run operato
 ## Features
 
 - **Dashboard** — live lab summary, status distribution chart, recent alerts.
-- **Computers** — searchable/filterable list with per-machine actions (lock, unlock, restart, wake, send message, remote control, block/allow USB, push file, delete file, security controls). New machines register automatically when the agent first runs.
+- **Computers** — searchable/filterable list with per-machine actions (lock, unlock, restart, wake, send message, remote control, remote view, block/allow USB, push file, delete file, security controls). New machines register automatically when the agent first runs.
 - **Alerts** — acknowledge and resolve alerts raised across the lab.
-- **USB policy** — set removable-media policy to allowed/blocked/review for all or selected computers; USB device connections are scanned and must be approved before they can be used.
+- **Check-ins** — a mandatory full-screen login form appears when a session starts and after every admin lock, with a **Student** tab (name, phone, admission number, optional email + photo) and an **Administrator** tab (username + passphrase). Submissions are recorded on the Check-ins page with a Student/Admin role badge. Choose the lab's sign-in method on the Agent page: per-student Windows passwords plus the form, or "login form instead of password" where the PC boots straight to the form (no Windows password page).
+- **USB policy** — set removable-media policy to allowed/blocked/review for all or selected computers; in review/quarantine mode newly inserted flash drives and phones are disabled at the device level (unusable and unchargeable) and Defender-scanned until you approve them.
 - **Peripherals** — the agent inventories keyboards, mice, and monitors on first run; if one is removed, the PC shows a full-screen warning overlay to return it and an alert + event (with the current user) is recorded for the administrator. Live status on the Peripherals page.
 - **Security** — an **Antivirus** and **Firewall** submenu: run quick/full scans or definition updates on all PCs (or a selected set), see live per-PC protection health, and browse a persisted scan-history report with per-computer results (JSON/CSV/print). Firewall enable/disable is broadcast the same way.
-- **Password monitoring** — the agent watches the Windows Security log (events 4723/4724) and alerts on password changes/resets; it also clears the Winlogon auto-login setting at boot so no password is skipped.
+- **Password monitoring** — the agent watches the Windows Security log (events 4723/4724) and alerts on password changes/resets; it also clears the Winlogon auto-login setting at boot unless the "login form instead of password" method is configured, in which case it sets up auto-login so the form is the first screen.
 - **Idle logout** — set an inactivity threshold (minutes); the agent logs the user out automatically when keyboard/mouse idle exceeds it.
 - **Reports** — attendance, violations, peripheral event, and security-scan reports with JSON + CSV export and a print button on every report and log.
-- **Agent** — download `lab-agent.ps1` and install it on each lab PC; it reports heartbeat/status, tracks logins, scans and reports USB devices, watches peripherals, monitors password changes, removes auto-login, and executes queued actions. Installed agents run at boot as SYSTEM so they cover every user.
-- **Events** — an audit log of operator actions, logins, USB events, password changes, auto-login removals, and peripheral connects/disconnects (printable).
+- **Agent** — download `lab-agent.ps1` and install it on each lab PC; it reports heartbeat/status, tracks logins, shows the login gate (Student/Administrator), scans and quarantines USB devices, watches peripherals, monitors password changes, applies the lab's sign-in method (auto-login on/off), and executes queued actions (lock/unlock, WoL relay, remote-view screenshots, and more). Installed agents run at boot as SYSTEM so they cover every user.
+- **Events** — an audit log of operator actions, logins, USB events, password changes, auto-login changes, and peripheral connects/disconnects (printable).
 - **Deployment** — a `render.yaml` blueprint for the web service with schema bootstrap and seed data.
 
 ## Tech stack
@@ -125,7 +126,7 @@ lab-command-center/
 | GET    | `/api/lab/usb-devices`            | List USB devices (pending/decided)      |
 | POST   | `/api/lab/usb-devices/:id/decide` | Approve/deny a pending USB device       |
 | GET    | `/api/lab/peripherals`            | List tracked peripherals per computer   |
-| GET    | `/api/lab/settings`               | Read lab settings (idle logout)        |
+| GET    | `/api/lab/settings`               | Read lab settings (idle logout, sign-in method, admin passphrase) |
 | PATCH  | `/api/lab/settings`               | Update lab settings                     |
 | GET    | `/api/lab/student-sessions`       | List student sessions                   |
 | POST   | `/api/lab/student-sessions`       | Start a session (sign a student in)     |

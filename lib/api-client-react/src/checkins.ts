@@ -22,9 +22,10 @@ export interface CheckinEntry {
   computerId: number;
   computerName: string;
   userName?: string | null;
+  role?: "student" | "admin" | null;
   studentName: string;
-  phone: string;
-  admissionNo: string;
+  phone?: string | null;
+  admissionNo?: string | null;
   email?: string | null;
   photoFileId?: string | null;
   submittedAt: string;

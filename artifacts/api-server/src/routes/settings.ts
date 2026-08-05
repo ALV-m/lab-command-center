@@ -13,6 +13,7 @@ const IDLE_KEY = "idle_logout_minutes";
 const SIGNIN_KEY = "signin_method";
 const SHARED_USER_KEY = "shared_account_user";
 const SHARED_PASS_KEY = "shared_account_password";
+const ADMIN_SECRET_KEY = "admin_gate_secret";
 
 async function readSetting(key: string): Promise<string | null> {
   const [row] = await db
@@ -53,6 +54,7 @@ router.get("/lab/settings", async (_req, res): Promise<void> => {
       signinMethod: await signinMethod(),
       sharedAccountUser: await readSetting(SHARED_USER_KEY),
       sharedAccountPassword: await readSetting(SHARED_PASS_KEY),
+      adminGateSecret: await readSetting(ADMIN_SECRET_KEY),
     }),
   );
 });
@@ -67,12 +69,14 @@ router.patch("/lab/settings", async (req, res): Promise<void> => {
   await writeSetting(SIGNIN_KEY, body.data.signinMethod ?? null);
   await writeSetting(SHARED_USER_KEY, body.data.sharedAccountUser ?? null);
   await writeSetting(SHARED_PASS_KEY, body.data.sharedAccountPassword ?? null);
+  await writeSetting(ADMIN_SECRET_KEY, body.data.adminGateSecret ?? null);
   res.json(
     UpdateLabSettingsResponse.parse({
       idleLogoutMinutes: await idleLogoutMinutes(),
       signinMethod: await signinMethod(),
       sharedAccountUser: await readSetting(SHARED_USER_KEY),
       sharedAccountPassword: await readSetting(SHARED_PASS_KEY),
+      adminGateSecret: await readSetting(ADMIN_SECRET_KEY),
     }),
   );
 });

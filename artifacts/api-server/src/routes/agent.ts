@@ -722,15 +722,41 @@ router.post("/agent/checkin", async (req, res): Promise<void> => {
     return;
   }
 
+  const role = body.data.role ?? "student";
+
+  if (role === "admin") {
+    const [secretRow] = await db
+      .select({ value: settingsTable.value })
+      .from(settingsTable)
+      .where(eq(settingsTable.key, "admin_gate_secret"))
+      .limit(1);
+    const expected = secretRow?.value ?? "";
+    if (!expected) {
+      res.json(AgentCheckinResponse.parse({ ok: false, error: "No administrator passphrase is configured" }));
+      return;
+    }
+    const supplied = body.data.adminPass ?? "";
+    const suppliedUser = (body.data.adminUser ?? "").trim();
+    if (!supplied || supplied !== expected) {
+      res.json(AgentCheckinResponse.parse({ ok: false, error: "Invalid administrator passphrase" }));
+      return;
+    }
+    if (!suppliedUser) {
+      res.json(AgentCheckinResponse.parse({ ok: false, error: "Enter your administrator username" }));
+      return;
+    }
+  }
+
   const [checkin] = await db
     .insert(checkinsTable)
     .values({
       computerId: computer.id,
       computerName: computer.name,
       userName: body.data.userName ?? null,
+      role,
       studentName: body.data.studentName,
-      phone: body.data.phone,
-      admissionNo: body.data.admissionNo,
+      phone: body.data.phone ?? null,
+      admissionNo: body.data.admissionNo ?? null,
       email: body.data.email ?? null,
       photoFileId: body.data.photoFileId ?? null,
     })
@@ -742,8 +768,11 @@ router.post("/agent/checkin", async (req, res): Promise<void> => {
     .where(eq(computersTable.id, computer.id));
 
   await db.insert(eventsTable).values({
-    type: "student_checkin",
-    message: `${body.data.studentName} checked in on ${computer.name} (${body.data.admissionNo})`,
+    type: role === "admin" ? "admin_checkin" : "student_checkin",
+    message:
+      role === "admin"
+        ? `${body.data.studentName} signed in as administrator on ${computer.name}`
+        : `${body.data.studentName} checked in on ${computer.name} (${body.data.admissionNo ?? "—"})`,
     actor: body.data.studentName,
     computerName: computer.name,
   });

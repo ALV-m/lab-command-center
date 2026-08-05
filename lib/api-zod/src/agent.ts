@@ -112,19 +112,25 @@ export const AgentEventResponse = zod.object({
   ok: zod.boolean(),
 });
 
+export const AgentCheckinRole = zod.enum(["student", "admin"]);
+
 export const AgentCheckinBody = zod.object({
   token: zod.string().min(1),
   userName: zod.string().max(200).nullish(),
+  role: AgentCheckinRole.nullish(),
   studentName: zod.string().min(1).max(200),
-  phone: zod.string().min(1).max(50),
-  admissionNo: zod.string().min(1).max(100),
+  phone: zod.string().max(50).nullish(),
+  admissionNo: zod.string().max(100).nullish(),
   email: zod.string().max(200).nullish(),
   photoFileId: zod.string().max(200).nullish(),
+  adminUser: zod.string().max(100).nullish(),
+  adminPass: zod.string().max(128).nullish(),
 });
 
 export const AgentCheckinResponse = zod.object({
   ok: zod.boolean(),
-  checkinId: zod.number(),
+  checkinId: zod.number().nullish(),
+  error: zod.string().max(300).nullish(),
 });
 
 export const AgentUploadResponse = zod.object({

@@ -22,6 +22,7 @@ export interface LabSettings {
   signinMethod: "password" | "shared_account" | null;
   sharedAccountUser: string | null;
   sharedAccountPassword: string | null;
+  adminGateSecret: string | null;
 }
 
 export interface UpdateLabSettingsInput {
@@ -29,6 +30,7 @@ export interface UpdateLabSettingsInput {
   signinMethod?: "password" | "shared_account" | null;
   sharedAccountUser?: string | null;
   sharedAccountPassword?: string | null;
+  adminGateSecret?: string | null;
 }
 
 export const getLabSettingsUrl = (): string => "/api/lab/settings";

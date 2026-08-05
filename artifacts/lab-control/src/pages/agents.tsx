@@ -57,6 +57,7 @@ function Agents() {
   const [signinMethod, setSigninMethod] = useState<"password" | "shared_account" | "">("");
   const [sharedUser, setSharedUser] = useState("");
   const [sharedPass, setSharedPass] = useState("");
+  const [adminSecret, setAdminSecret] = useState("");
   const [formInitialized, setFormInitialized] = useState(false);
 
   useEffect(() => {
@@ -64,6 +65,7 @@ function Agents() {
       setSigninMethod(settings.signinMethod ?? "password");
       setSharedUser(settings.sharedAccountUser ?? "");
       setSharedPass(settings.sharedAccountPassword ?? "");
+      setAdminSecret(settings.adminGateSecret ?? "");
       setFormInitialized(true);
     }
   }, [settings, formInitialized]);
@@ -86,6 +88,7 @@ function Agents() {
       signinMethod: method,
       sharedAccountUser: isShared ? (sharedUser || settings?.sharedAccountUser || null) : null,
       sharedAccountPassword: isShared ? (sharedPass || settings?.sharedAccountPassword || null) : null,
+      adminGateSecret: adminSecret || settings?.adminGateSecret || null,
     };
   };
 
@@ -147,8 +150,8 @@ function Agents() {
             <li>Logs users out automatically after a configurable idle time</li>
             <li>Reports antivirus and firewall status; runs AV scans/updates and firewall toggles</li>
             <li>Watches the Security log and reports password changes and resets (4723/4724)</li>
-            <li>Removes the Windows auto-login setting by default, or auto-logs into a shared
-            account when the lab selects that sign-in method</li>
+            <li>Removes the Windows auto-login setting by default, or auto-logs into a local
+            account when the lab selects the "login form instead of password" method</li>
             <li>Remote actions: lock, restart, message, file push/delete, AV scan</li>
             <li>Enables Remote Desktop and reports IP for remote control</li>
           </ul>
@@ -251,8 +254,8 @@ function Agents() {
                 <SelectValue placeholder="Choose a method" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="password">Windows password + check-in form</SelectItem>
-                <SelectItem value="shared_account">Shared auto-login account (check-in form only)</SelectItem>
+                <SelectItem value="password">Windows password, then login form</SelectItem>
+                <SelectItem value="shared_account">Login form instead of password (auto-login)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -261,7 +264,7 @@ function Agents() {
             <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
               <div className="grid gap-1.5">
                 <label htmlFor="shared-user" className="text-sm font-medium">
-                  Shared account username
+                  Auto-login account username
                 </label>
                 <div className="relative">
                   <UserRound className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -278,7 +281,7 @@ function Agents() {
               </div>
               <div className="grid gap-1.5">
                 <label htmlFor="shared-pass" className="text-sm font-medium">
-                  Shared account password
+                  Auto-login account password
                 </label>
                 <div className="relative">
                   <KeyRound className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -295,11 +298,37 @@ function Agents() {
               </div>
               <p className="text-xs text-muted-foreground sm:col-span-2">
                 The agent creates this local Windows account on each PC if it does not exist, then
-                enables auto-login so every boot lands on the shared account. The check-in form is
-                the only barrier after that.
+                enables auto-login so every boot lands on this account. The login form is the only
+                barrier after that — no password prompt is shown.
               </p>
             </div>
           ) : null}
+
+          <div className="grid gap-3 rounded-md border p-3">
+            <div className="grid gap-1.5">
+              <label htmlFor="admin-secret" className="text-sm font-medium">
+                Administrator passphrase (login form)
+              </label>
+              <div className="relative">
+                <KeyRound className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="admin-secret"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="Set a secret administrators enter on the PC"
+                  value={adminSecret}
+                  onChange={(event) => setAdminSecret(event.target.value)}
+                  className="pl-8"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                The login form has a Student tab and an Administrator tab. Anyone entering this
+                passphrase on the Administrator tab signs in as an administrator (recorded in the
+                Check-ins log and the dashboard opens). Leave empty to disable administrator
+                sign-in on the PCs.
+              </p>
+            </div>
+          </div>
 
           <Button onClick={saveSigninSetting} disabled={settingsMutation.isPending}>
             {settingsMutation.isPending ? <Spinner className="size-4" /> : <Save className="size-4" />}
@@ -307,8 +336,11 @@ function Agents() {
           </Button>
           <p className="text-xs text-muted-foreground">
             {signinMethod === "shared_account"
-              ? `Shared account "${sharedUser || settings?.sharedAccountUser || "…"}": PCs will auto-login and show the check-in form only.`
-              : "Each student signs into their own Windows account, then completes the check-in form."}
+              ? `Auto-login account "${sharedUser || settings?.sharedAccountUser || "…"}": PCs boot to the login form instead of the Windows password page.`
+              : "Each student signs into their own Windows account, then completes the login form."}
+            {adminSecret || settings?.adminGateSecret
+              ? " Administrator sign-in via the login form is enabled."
+              : " No administrator passphrase set — the Administrator tab is disabled."}
           </p>
         </CardContent>
       </Card>
@@ -338,16 +370,16 @@ function Agents() {
             agent reports its physical MAC address, and Wake-on-LAN must be enabled in the PC's BIOS.
           </p>
           <p>
-            • "Lock" locks the workstation and marks it so the next sign-in shows the required
-            check-in screen (name, phone, admission number, optional email and photo). "Unlock" clears
-            the requirement and dismisses the form. The check-in screen also appears whenever a user
-            signs in to a PC.
+            • "Lock" locks the workstation and marks it so the next sign-in shows the required login
+            screen. "Unlock" clears the requirement and dismisses the form. The login screen also
+            appears whenever a user signs in to a PC, with a Student tab and an Administrator tab.
           </p>
           <p>
-            • With the "shared auto-login account" method, every PC boots into one shared Windows
-            account and the check-in form is the only barrier. It creates the account if missing and
-            turns auto-login on; switching back to "password" removes auto-login again. This shares a
-            single Windows profile across all students, so files are not isolated per student.
+            • With "Login form instead of password", every PC boots into one local Windows account
+            (created automatically) and the login form is the only barrier — no Windows password page
+            is shown. It turns auto-login on; switching back to "password" removes auto-login again.
+            This shares a single Windows profile across all students, so files are not isolated per
+            student.
           </p>
           <p>
             • USB modes can be set per computer (allow / block / review). In "review" (quarantine),

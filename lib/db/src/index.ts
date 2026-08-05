@@ -198,12 +198,15 @@ const DDL_STATEMENTS = [
     computer_name text NOT NULL,
     user_name text,
     student_name text NOT NULL,
-    phone text NOT NULL,
-    admission_no text NOT NULL,
+    phone text,
+    admission_no text,
     email text,
     photo_file_id text,
     submitted_at timestamptz NOT NULL DEFAULT now()
   );
+  ALTER TABLE lab_checkins ALTER COLUMN phone DROP NOT NULL;
+  ALTER TABLE lab_checkins ALTER COLUMN admission_no DROP NOT NULL;
+  ALTER TABLE lab_checkins ADD COLUMN IF NOT EXISTS role text NOT NULL DEFAULT 'student';
   CREATE INDEX IF NOT EXISTS lab_checkins_computer_idx
     ON lab_checkins (computer_id, submitted_at);
   `,
