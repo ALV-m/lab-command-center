@@ -141,7 +141,7 @@ router.post("/lab/computers/:computerId/actions", async (req, res): Promise<void
       .values({
         computerId: relay.id,
         action: "wol_relay",
-        message: `Wake ${computer.name} (${computer.name}) via ${relay.name}`,
+        message: `Wake ${computer.name} via ${relay.name}`,
         payload: JSON.stringify({
           targetMac: computer.macAddress,
           targetComputerId: computer.id,
