@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -28,6 +28,9 @@ import {
   GetUsbPoliciesResponse,
   PushFileParams,
   PushFileResponse,
+  SetComputerUsbModeBody,
+  SetComputerUsbModeParams,
+  SetComputerUsbModeResponse,
   UpdateLabAlertBody,
   UpdateLabAlertParams,
   UpdateLabAlertResponse,
@@ -114,6 +117,60 @@ router.post("/lab/computers/:computerId/actions", async (req, res): Promise<void
     return;
   }
 
+  if (body.data.action === "wake") {
+    if (!computer.macAddress) {
+      res.status(400).json({
+        error: `${computer.name} has not reported a MAC address yet, so Wake-on-LAN cannot be sent.`,
+      });
+      return;
+    }
+    const relayPool = await db
+      .select()
+      .from(computersTable)
+      .where(sql`${computersTable.status} = 'online' AND ${computersTable.lastSeen} > now() - interval '90 seconds' AND ${computersTable.id} <> ${computer.id}`)
+      .orderBy(sql`${computersTable.room} = ${computer.room} DESC`);
+    const relay = relayPool[0];
+    if (!relay) {
+      res.status(400).json({
+        error: "No online computer on the same network is available to relay the wake packet.",
+      });
+      return;
+    }
+    const [relayAction] = await db
+      .insert(actionsTable)
+      .values({
+        computerId: relay.id,
+        action: "wol_relay",
+        message: `Wake ${computer.name} (${computer.name}) via ${relay.name}`,
+        payload: JSON.stringify({
+          targetMac: computer.macAddress,
+          targetComputerId: computer.id,
+          targetName: computer.name,
+        }),
+        status: "queued",
+      })
+      .returning();
+
+    await db.insert(eventsTable).values({
+      type: "operator_action",
+      message: `Wake-on-LAN requested for ${computer.name} and relayed through ${relay.name}`,
+      actor: "Lab administrator",
+      computerName: computer.name,
+    });
+
+    res.status(201).json(
+      CreateComputerActionResponse.parse({
+        id: relayAction.id,
+        computerId: computer.id,
+        action: "wake",
+        status: "queued",
+        message: `Wake-on-LAN relayed via ${relay.name}`,
+        createdAt: iso(relayAction.createdAt),
+      }),
+    );
+    return;
+  }
+
   const [action] = await db
     .insert(actionsTable)
     .values({
@@ -126,9 +183,9 @@ router.post("/lab/computers/:computerId/actions", async (req, res): Promise<void
     .returning();
 
   if (body.data.action === "lock") {
-    await db.update(computersTable).set({ status: "locked" }).where(eq(computersTable.id, params.data.computerId));
+    await db.update(computersTable).set({ status: "locked", checkinRequired: true }).where(eq(computersTable.id, params.data.computerId));
   } else if (body.data.action === "unlock") {
-    await db.update(computersTable).set({ status: "online" }).where(eq(computersTable.id, params.data.computerId));
+    await db.update(computersTable).set({ status: "online", checkinRequired: false }).where(eq(computersTable.id, params.data.computerId));
   } else if (body.data.action === "block_usb") {
     await db.update(computersTable).set({ usbState: "blocked" }).where(eq(computersTable.id, params.data.computerId));
   } else if (body.data.action === "allow_usb") {
@@ -353,6 +410,45 @@ router.get("/lab/events", async (_req, res): Promise<void> => {
     GetLabEventsResponse.parse(
       events.map((event) => ({ ...event, createdAt: iso(event.createdAt) as string })),
     ),
+  );
+});
+
+router.put("/lab/computers/:computerId/usb-mode", async (req, res): Promise<void> => {
+  const params = SetComputerUsbModeParams.safeParse(req.params);
+  const body = SetComputerUsbModeBody.safeParse(req.body);
+  if (!params.success || !body.success) {
+    res.status(400).json({ error: "Invalid USB mode" });
+    return;
+  }
+
+  const [computer] = await db
+    .select()
+    .from(computersTable)
+    .where(eq(computersTable.id, params.data.computerId))
+    .limit(1);
+  if (!computer) {
+    res.status(404).json({ error: "Computer not found" });
+    return;
+  }
+
+  const [updated] = await db
+    .update(computersTable)
+    .set({ usbState: body.data.mode })
+    .where(eq(computersTable.id, computer.id))
+    .returning();
+
+  await db.insert(eventsTable).values({
+    type: "usb_policy_change",
+    message: `USB mode for ${computer.name} set to ${body.data.mode}`,
+    actor: "Lab administrator",
+    computerName: computer.name,
+  });
+
+  res.json(
+    SetComputerUsbModeResponse.parse({
+      computerId: updated.id,
+      usbState: updated.usbState,
+    }),
   );
 });
 

@@ -6,5 +6,6 @@ export * from "./security";
 export * from "./settings";
 export * from "./usb-devices";
 export * from "./files";
+export * from "./checkins";
 export { setBaseUrl, setAuthTokenGetter } from "./custom-fetch";
 export type { AuthTokenGetter } from "./custom-fetch";

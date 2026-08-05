@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import agentRouter from "./agent";
+import checkinsRouter from "./checkins";
 import filesRouter from "./files";
 import healthRouter from "./health";
 import labRouter from "./lab";
@@ -12,6 +13,7 @@ import usbDevicesRouter from "./usb-devices";
 const router: IRouter = Router();
 
 router.use(agentRouter);
+router.use(checkinsRouter);
 router.use(filesRouter);
 router.use(healthRouter);
 router.use(labRouter);

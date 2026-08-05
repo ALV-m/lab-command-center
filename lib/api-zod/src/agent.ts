@@ -17,12 +17,15 @@ export const AgentComputerAction = zod.enum([
   "av_toggle",
   "fw_enable",
   "fw_disable",
+  "wol_relay",
 ]);
 
 export const AgentRegisterBody = zod.object({
   name: zod.string().min(1).max(100),
   os: zod.string().max(200).optional(),
   agentVersion: zod.string().max(50).optional(),
+  macAddress: zod.string().max(64).nullish(),
+  ipAddress: zod.string().max(64).nullish(),
 });
 
 export const AgentRegisterResponse = zod.object({
@@ -44,6 +47,8 @@ export const AgentHeartbeatBody = zod.object({
   avScanState: zod.string().nullish(),
   firewallEnabled: zod.boolean().nullish(),
   firewallProfiles: zod.string().nullish(),
+  macAddress: zod.string().max(64).nullish(),
+  ipAddress: zod.string().max(64).nullish(),
 });
 
 export const AgentPendingAction = zod.object({
@@ -62,8 +67,10 @@ export const AgentHeartbeatResponse = zod.object({
     usbState: zod.enum(["blocked", "allowed", "review"]),
     firewallEnabled: zod.boolean().nullish(),
     firewallProfiles: zod.string().nullish(),
+    checkinRequired: zod.boolean().nullish(),
   }),
   allowedUsb: zod.array(zod.string()),
+  allowedDeviceIds: zod.array(zod.string()).default([]),
   pendingActions: zod.array(AgentPendingAction),
   idleLogoutMinutes: zod.number().int().nonnegative().nullish(),
 });
@@ -100,4 +107,28 @@ export const AgentEventBody = zod.object({
 
 export const AgentEventResponse = zod.object({
   ok: zod.boolean(),
+});
+
+export const AgentCheckinBody = zod.object({
+  token: zod.string().min(1),
+  userName: zod.string().max(200).nullish(),
+  studentName: zod.string().min(1).max(200),
+  phone: zod.string().min(1).max(50),
+  admissionNo: zod.string().min(1).max(100),
+  email: zod.string().max(200).nullish(),
+  photoFileId: zod.string().max(200).nullish(),
+});
+
+export const AgentCheckinResponse = zod.object({
+  ok: zod.boolean(),
+  checkinId: zod.number(),
+});
+
+export const AgentUploadResponse = zod.object({
+  fileId: zod.string(),
+});
+
+export const AgentScreenshotResponse = zod.object({
+  fileId: zod.string(),
+  takenAt: zod.string(),
 });

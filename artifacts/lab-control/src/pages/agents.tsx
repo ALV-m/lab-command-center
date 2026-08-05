@@ -205,12 +205,24 @@ function Agents() {
             reports the machine's IP when you run the action.
           </p>
           <p>
-            • "Unlock", "Wake on LAN", and "Remote view" are acknowledged but not fully supported by
-            the agent yet.
+            • "Remote view" captures an on-demand screenshot of the interactive session and shows it in
+            the dashboard; refresh to update it.
           </p>
           <p>
-            • USB enforcement ejects unapproved removable drives; for hard blocking on domain-managed
-            labs, combine with Group Policy (Removable Storage Access).
+            • "Wake on LAN" relays a magic packet through another online PC on the same network. Each
+            agent reports its physical MAC address, and Wake-on-LAN must be enabled in the PC's BIOS.
+          </p>
+          <p>
+            • "Lock" locks the workstation and marks it so the next sign-in shows the required
+            check-in screen (name, phone, admission number, optional email and photo). "Unlock" clears
+            the requirement and dismisses the form. The check-in screen also appears whenever a user
+            signs in to a PC.
+          </p>
+          <p>
+            • USB modes can be set per computer (allow / block / review). In "review" (quarantine),
+            newly inserted flash drives and phones are disabled at the device level — they cannot be
+            used or charged — and scanned with Defender. They stay blocked until you approve them on
+            the USB Policy page, which re-enables them automatically.
           </p>
           <p>
             • Password change/reset monitoring reads the Windows Security log (events 4723/4724); the

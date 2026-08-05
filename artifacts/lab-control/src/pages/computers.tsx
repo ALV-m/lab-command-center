@@ -4,13 +4,19 @@ import {
   ComputerActionInputAction,
   getGetComputersQueryKey,
   getGetLabSummaryQueryKey,
+  getLatestScreenshotQueryKey,
+  screenshotFileUrl,
   type Computer,
+  type UsbMode,
   useCreateComputerAction,
   useGetComputers,
+  useGetLatestScreenshot,
   usePushFileToComputer,
+  useSetComputerUsbMode,
 } from "@workspace/api-client-react";
 import {
   Ban,
+  Camera,
   ChevronDown,
   FileUp,
   Lock,
@@ -82,6 +88,7 @@ function Computers() {
   const [deleteTarget, setDeleteTarget] = useState<Computer | null>(null);
   const [deletePath, setDeletePath] = useState("");
   const [securityTarget, setSecurityTarget] = useState<Computer | null>(null);
+  const [viewTarget, setViewTarget] = useState<Computer | null>(null);
 
   const actionMutation = useCreateComputerAction({
     mutation: {
@@ -89,6 +96,16 @@ function Computers() {
         queryClient.invalidateQueries({ queryKey: getGetComputersQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetLabSummaryQueryKey() });
         toast.success("Action queued");
+      },
+      onError: (error) => toast.error(error.message),
+    },
+  });
+
+  const usbModeMutation = useSetComputerUsbMode({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetComputersQueryKey() });
+        toast.success("USB mode updated");
       },
       onError: (error) => toast.error(error.message),
     },
@@ -120,6 +137,10 @@ function Computers() {
 
   const runAction = (computer: Computer, action: ComputerActionInputAction, payload?: string) => {
     actionMutation.mutate({ computerId: computer.id, data: { action, payload } });
+  };
+
+  const setUsbMode = (computer: Computer, mode: UsbMode) => {
+    usbModeMutation.mutate({ computerId: computer.id, mode });
   };
 
   const sendMessage = () => {
@@ -311,7 +332,7 @@ function Computers() {
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           disabled={actionMutation.isPending}
-                          onClick={() => runAction(computer, ComputerActionInputAction.remote_view)}
+                          onClick={() => setViewTarget(computer)}
                         >
                           <MousePointer2 className="size-4" />
                           Remote view
@@ -357,18 +378,40 @@ function Computers() {
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
+                          disabled={usbModeMutation.isPending}
+                          onClick={() => setUsbMode(computer, "allowed")}
+                        >
+                          <ShieldCheck className="size-4" />
+                          USB: allow devices
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={usbModeMutation.isPending}
+                          onClick={() => setUsbMode(computer, "blocked")}
+                        >
+                          <Ban className="size-4" />
+                          USB: block devices
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={usbModeMutation.isPending}
+                          onClick={() => setUsbMode(computer, "review")}
+                        >
+                          <ShieldAlert className="size-4" />
+                          USB: review / quarantine
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
                           disabled={actionMutation.isPending}
                           onClick={() => runAction(computer, ComputerActionInputAction.block_usb)}
                         >
                           <Ban className="size-4" />
-                          Block USB
+                          Eject removable drives
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           disabled={actionMutation.isPending}
                           onClick={() => runAction(computer, ComputerActionInputAction.allow_usb)}
                         >
                           <ShieldCheck className="size-4" />
-                          Allow USB
+                          Allow all USB (policy)
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -580,7 +623,92 @@ function Computers() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {viewTarget ? (
+        <RemoteViewDialog
+          computer={viewTarget}
+          open
+          onOpenChange={(open) => !open && setViewTarget(null)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function RemoteViewDialog({
+  computer,
+  open,
+  onOpenChange,
+}: {
+  computer: Computer;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const { data, isFetching } = useGetLatestScreenshot(computer.id, {
+    query: {
+      queryKey: getLatestScreenshotQueryKey(computer.id),
+      refetchInterval: open ? 5_000 : false,
+    },
+  });
+
+  const captureMutation = useCreateComputerAction({
+    mutation: {
+      onSuccess: () => {
+        toast.success("Screenshot requested");
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: getLatestScreenshotQueryKey(computer.id) });
+        }, 6_000);
+      },
+      onError: (error) => toast.error(error.message),
+    },
+  });
+
+  const shot = data?.screenshot;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+      <DialogHeader>
+        <DialogTitle>Remote view — {computer.name}</DialogTitle>
+        <DialogDescription>
+          {shot
+            ? `Latest screen capture from ${formatDateTime(shot.takenAt)}.`
+            : "No screenshot available yet. Request one below."}
+        </DialogDescription>
+      </DialogHeader>
+      <div className="relative aspect-video w-full overflow-hidden rounded-md border bg-muted">
+        {shot ? (
+          <img
+            src={screenshotFileUrl(shot.fileId)}
+            alt={`Screenshot of ${computer.name}`}
+            className="h-full w-full object-contain"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+            {isFetching ? <Spinner className="size-4" /> : <Monitor className="size-4" />}
+            {isFetching ? "Checking for a screenshot…" : "No screenshot yet. Request one below."}
+          </div>
+        )}
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={() => onOpenChange(false)}>
+          Close
+        </Button>
+        <Button
+          disabled={captureMutation.isPending}
+          onClick={() =>
+            captureMutation.mutate({
+              computerId: computer.id,
+              data: { action: ComputerActionInputAction.remote_view },
+            })
+          }
+        >
+          {captureMutation.isPending ? <Spinner className="size-4" /> : <Camera className="size-4" />}
+          Capture fresh view
+        </Button>
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

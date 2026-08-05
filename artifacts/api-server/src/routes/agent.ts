@@ -1,19 +1,22 @@
 import { Router, type IRouter } from "express";
+import express from "express";
 import { and, eq, sql } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { db } from "@workspace/db";
 import {
   actionsTable,
   alertsTable,
+  checkinsTable,
   computersTable,
   eventsTable,
   fileEntriesTable,
   scanResultsTable,
   scanRunsTable,
+  screenshotsTable,
   settingsTable,
   studentSessionsTable,
   usbDevicesTable,
@@ -23,12 +26,16 @@ import {
   AgentActionCompleteBody,
   AgentActionCompleteParams,
   AgentActionCompleteResponse,
+  AgentCheckinBody,
+  AgentCheckinResponse,
   AgentEventBody,
   AgentEventResponse,
   AgentHeartbeatBody,
   AgentHeartbeatResponse,
   AgentRegisterBody,
   AgentRegisterResponse,
+  AgentScreenshotResponse,
+  AgentUploadResponse,
   ReportFileListingBody,
 } from "@workspace/api-zod";
 
@@ -44,6 +51,11 @@ const safeUser = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
+
+const approveByDefault = (
+  computer: { usbState: string },
+  globalMode: string,
+): boolean => globalMode === "allowed" || computer.usbState === "allowed";
 
 async function endActiveSessions(computerId: number): Promise<void> {
   await db
@@ -112,6 +124,8 @@ router.post("/agent/register", async (req, res): Promise<void> => {
         agentToken: token,
         agentVersion: body.data.agentVersion ?? existing.agentVersion,
         os: body.data.os ?? existing.os,
+        macAddress: body.data.macAddress ?? existing.macAddress,
+        ipAddress: body.data.ipAddress ?? existing.ipAddress,
       })
       .where(eq(computersTable.id, existing.id))
       .returning();
@@ -127,6 +141,8 @@ router.post("/agent/register", async (req, res): Promise<void> => {
         os: body.data.os ?? "Windows",
         agentToken: token,
         agentVersion: body.data.agentVersion ?? null,
+        macAddress: body.data.macAddress ?? null,
+        ipAddress: body.data.ipAddress ?? null,
       })
       .returning();
     computer = inserted;
@@ -199,6 +215,8 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
       avScanState: body.data.avScanState ?? computer.avScanState,
       firewallEnabled: body.data.firewallEnabled ?? computer.firewallEnabled,
       firewallProfiles: body.data.firewallProfiles ?? computer.firewallProfiles,
+      macAddress: body.data.macAddress ?? computer.macAddress,
+      ipAddress: body.data.ipAddress ?? computer.ipAddress,
     })
     .where(eq(computersTable.id, computer.id));
 
@@ -216,7 +234,7 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
   const policyMode = policy?.mode ?? "approval_required";
 
   const approvedDevices =
-    policyMode === "allowed"
+    approveByDefault(computer, policyMode)
       ? []
       : await db
           .select()
@@ -230,6 +248,10 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
   const allowedUsb = approvedDevices
     .map((device) => device.driveLetter)
     .filter((letter): letter is string => Boolean(letter));
+
+  const allowedDeviceIds = approvedDevices
+    .map((device) => device.instanceId)
+    .filter((instanceId): instanceId is string => Boolean(instanceId));
 
   const pending = await db
     .select()
@@ -264,8 +286,10 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
         usbState: computer.usbState,
         firewallEnabled: computer.firewallEnabled,
         firewallProfiles: computer.firewallProfiles,
+        checkinRequired: computer.checkinRequired,
       },
       allowedUsb,
+      allowedDeviceIds,
       pendingActions: pending.map((action) => ({
         id: action.id,
         action: action.action as never,
@@ -475,8 +499,10 @@ router.post("/agent/events", async (req, res): Promise<void> => {
       const driveLetter = driveMatch ? driveMatch[1].toUpperCase() : null;
       const serialMatch = detail?.match(/serial=([\w-]+)/i);
       const deviceId = serialMatch ? serialMatch[1].toLowerCase() : null;
+      const instanceMatch = detail?.match(/instanceId=([^\s;()]+)/);
+      const instanceId = instanceMatch ? instanceMatch[1] : null;
       const label = detail ? detail.slice(0, 120) : "Removable device";
-      const status = policyMode === "allowed" ? "approved" : "pending";
+      const status = approveByDefault(computer, policyMode) ? "approved" : "pending";
 
       const existing = deviceId
         ? await db
@@ -496,6 +522,7 @@ router.post("/agent/events", async (req, res): Promise<void> => {
           computerId: computer.id,
           computerName: computer.name,
           deviceId,
+          instanceId,
           driveLetter,
           label,
           status,
@@ -594,6 +621,111 @@ router.post("/agent/events", async (req, res): Promise<void> => {
   }
 
   res.json(AgentEventResponse.parse({ ok: true }));
+});
+
+router.post(
+  "/agent/upload",
+  express.raw({ type: () => true, limit: "16mb" }),
+  async (req, res): Promise<void> => {
+    const token = typeof req.query.token === "string" ? req.query.token : "";
+    const [computer] = await db
+      .select()
+      .from(computersTable)
+      .where(eq(computersTable.agentToken, token))
+      .limit(1);
+    if (!computer) {
+      res.status(401).json({ error: "Invalid agent token" });
+      return;
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.byteLength === 0) {
+      res.status(400).json({ error: "Empty upload" });
+      return;
+    }
+    const fileId = randomBytes(16).toString("hex");
+    await writeFile(path.join(UPLOADS_DIR, fileId), req.body);
+    res.status(201).json(AgentUploadResponse.parse({ fileId }));
+  },
+);
+
+router.post(
+  "/agent/screenshot",
+  express.raw({ type: () => true, limit: "16mb" }),
+  async (req, res): Promise<void> => {
+    const token = typeof req.query.token === "string" ? req.query.token : "";
+    const [computer] = await db
+      .select()
+      .from(computersTable)
+      .where(eq(computersTable.agentToken, token))
+      .limit(1);
+    if (!computer) {
+      res.status(401).json({ error: "Invalid agent token" });
+      return;
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.byteLength === 0) {
+      res.status(400).json({ error: "Empty screenshot" });
+      return;
+    }
+
+    const fileId = randomBytes(16).toString("hex");
+    await writeFile(path.join(UPLOADS_DIR, fileId), req.body);
+
+    await db
+      .delete(screenshotsTable)
+      .where(eq(screenshotsTable.computerId, computer.id));
+
+    await db.insert(screenshotsTable).values({
+      computerId: computer.id,
+      fileId,
+    });
+
+    res.status(201).json(AgentScreenshotResponse.parse({ fileId, takenAt: new Date().toISOString() }));
+  },
+);
+
+router.post("/agent/checkin", async (req, res): Promise<void> => {
+  const body = AgentCheckinBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
+    return;
+  }
+
+  const [computer] = await db
+    .select()
+    .from(computersTable)
+    .where(eq(computersTable.agentToken, body.data.token))
+    .limit(1);
+  if (!computer) {
+    res.status(401).json({ error: "Invalid agent token" });
+    return;
+  }
+
+  const [checkin] = await db
+    .insert(checkinsTable)
+    .values({
+      computerId: computer.id,
+      computerName: computer.name,
+      userName: body.data.userName ?? null,
+      studentName: body.data.studentName,
+      phone: body.data.phone,
+      admissionNo: body.data.admissionNo,
+      email: body.data.email ?? null,
+      photoFileId: body.data.photoFileId ?? null,
+    })
+    .returning();
+
+  await db
+    .update(computersTable)
+    .set({ checkinRequired: false, status: "online" })
+    .where(eq(computersTable.id, computer.id));
+
+  await db.insert(eventsTable).values({
+    type: "student_checkin",
+    message: `${body.data.studentName} checked in on ${computer.name} (${body.data.admissionNo})`,
+    actor: body.data.studentName,
+    computerName: computer.name,
+  });
+
+  res.json(AgentCheckinResponse.parse({ ok: true, checkinId: checkin.id }));
 });
 
 router.get("/agent/files/download/:fileId", async (req, res): Promise<void> => {

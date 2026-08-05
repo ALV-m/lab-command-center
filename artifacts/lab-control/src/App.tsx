@@ -12,6 +12,7 @@ import {
   Server,
   ShieldAlert,
   ShieldCheck,
+  UserCheck,
   Users,
 } from "lucide-react";
 import { Route, Router as WouterRouter, Switch, Link, useLocation } from "wouter";
@@ -22,6 +23,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Agents from "@/pages/agents";
 import Alerts from "@/pages/alerts";
 import Antivirus from "@/pages/antivirus";
+import Checkins from "@/pages/checkins";
 import Computers from "@/pages/computers";
 import Dashboard from "@/pages/dashboard";
 import Events from "@/pages/events";
@@ -56,6 +58,7 @@ const NAV_SECTIONS: Array<{
       { href: "/usb-policies", label: "USB Policy", icon: ShieldCheck },
       { href: "/peripherals", label: "Peripherals", icon: Cable },
       { href: "/files", label: "File Transfer", icon: FolderUp },
+      { href: "/checkins", label: "Check-ins", icon: UserCheck },
       { href: "/sessions", label: "Sessions", icon: Users },
     ],
   },
@@ -188,6 +191,7 @@ function Layout() {
               <Route path="/usb-policies" component={UsbPolicies} />
               <Route path="/peripherals" component={Peripherals} />
               <Route path="/files" component={Files} />
+              <Route path="/checkins" component={Checkins} />
               <Route path="/antivirus" component={Antivirus} />
               <Route path="/firewall" component={Firewall} />
               <Route path="/sessions" component={Sessions} />

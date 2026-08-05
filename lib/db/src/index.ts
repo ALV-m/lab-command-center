@@ -53,6 +53,9 @@ const DDL_STATEMENTS = [
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS av_scan_state text;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS firewall_enabled boolean;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS firewall_profiles text;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS mac_address text;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS ip_address text;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS checkin_required boolean NOT NULL DEFAULT false;
   `,
   `
   CREATE TABLE IF NOT EXISTS lab_actions (
@@ -128,6 +131,7 @@ const DDL_STATEMENTS = [
     created_at timestamptz NOT NULL DEFAULT now(),
     decided_at timestamptz
   );
+  ALTER TABLE lab_usb_devices ADD COLUMN IF NOT EXISTS instance_id text;
   `,
   `
   CREATE TABLE IF NOT EXISTS lab_peripherals (
@@ -186,6 +190,32 @@ const DDL_STATEMENTS = [
   );
   CREATE INDEX IF NOT EXISTS lab_file_entries_computer_path_idx
     ON lab_file_entries (computer_id, path);
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS lab_checkins (
+    id serial PRIMARY KEY,
+    computer_id integer NOT NULL,
+    computer_name text NOT NULL,
+    user_name text,
+    student_name text NOT NULL,
+    phone text NOT NULL,
+    admission_no text NOT NULL,
+    email text,
+    photo_file_id text,
+    submitted_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS lab_checkins_computer_idx
+    ON lab_checkins (computer_id, submitted_at);
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS lab_screenshots (
+    id serial PRIMARY KEY,
+    computer_id integer NOT NULL,
+    file_id text NOT NULL,
+    taken_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS lab_screenshots_computer_idx
+    ON lab_screenshots (computer_id, taken_at);
   `,
 ];
 

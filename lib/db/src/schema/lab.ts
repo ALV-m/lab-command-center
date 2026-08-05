@@ -29,6 +29,9 @@ export const computersTable = pgTable("lab_computers", {
   avScanState: text("av_scan_state"),
   firewallEnabled: boolean("firewall_enabled"),
   firewallProfiles: text("firewall_profiles"),
+  macAddress: text("mac_address"),
+  ipAddress: text("ip_address"),
+  checkinRequired: boolean("checkin_required").notNull().default(false),
 });
 
 export const actionsTable = pgTable("lab_actions", {
@@ -86,6 +89,7 @@ export const usbDevicesTable = pgTable("lab_usb_devices", {
   computerId: integer("computer_id").notNull(),
   computerName: text("computer_name").notNull(),
   deviceId: text("device_id"),
+  instanceId: text("instance_id"),
   driveLetter: text("drive_letter"),
   label: text("label"),
   status: text("status").notNull().default("pending"),
@@ -140,6 +144,26 @@ export const fileEntriesTable = pgTable("lab_file_entries", {
   size: bigint("size", { mode: "number" }).notNull().default(0),
   modifiedAt: text("modified_at"),
   listedAt: timestamp("listed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const checkinsTable = pgTable("lab_checkins", {
+  id: serial("id").primaryKey(),
+  computerId: integer("computer_id").notNull(),
+  computerName: text("computer_name").notNull(),
+  userName: text("user_name"),
+  studentName: text("student_name").notNull(),
+  phone: text("phone").notNull(),
+  admissionNo: text("admission_no").notNull(),
+  email: text("email"),
+  photoFileId: text("photo_file_id"),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const screenshotsTable = pgTable("lab_screenshots", {
+  id: serial("id").primaryKey(),
+  computerId: integer("computer_id").notNull(),
+  fileId: text("file_id").notNull(),
+  takenAt: timestamp("taken_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const insertComputerSchema = createInsertSchema(computersTable).omit({ id: true });

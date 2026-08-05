@@ -8,17 +8,24 @@
 #     live scan state)
 #   * tracks the interactive (console) user for attendance
 #   * detects USB storage insertion, scans it with Defender, and reports it
-#   * ejects removable drives that are not approved by the administrator
+#   * in strict USB modes it disables newly inserted flash drives/phones at the
+#     device level (they cannot be used or charged) until approved by the admin
 #   * inventories keyboard/mouse/monitor peripherals, warns on-screen (full
 #     screen overlay) when a baseline device is disconnected, and reports
 #     connect/disconnect to the server with the current user
+#   * shows a non-bypassable full-screen check-in form (name, phone, admission
+#     number, optional email, optional photo) when a user session starts or
+#     after an administrator lock, and records it with the server
 #   * monitors the Security log for local account password changes (4723) and
 #     password resets (4724) and reports them as alerts/events
 #   * disables Windows auto-login at boot so PCs always land on the login page
 #   * logs the console user out automatically after a configurable idle time
 #   * runs antivirus scans as background jobs and reports scanning status
 #   * executes remote actions (lock, restart, message, file push/delete, AV
-#     scan/update/toggle, firewall enable/disable, Remote Desktop enable)
+#     scan/update/toggle, firewall enable/disable, Remote Desktop enable,
+#     Wake-on-LAN relay, remote-view screenshot upload)
+#   * reports the physical MAC address and IP so the server can send
+#     Wake-on-LAN packets through another online PC on the same network
 #
 # Usage:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -ServerUrl https://YOUR-APP.onrender.com
@@ -39,7 +46,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.2.0'
+$script:AgentVersion = '1.3.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $AgentPath = Join-Path $ConfigDir 'lab-agent.ps1'
@@ -93,6 +100,8 @@ function Register-Agent {
     name = $hostname
     os = $osName
     agentVersion = $script:AgentVersion
+    macAddress = Get-LocalMacAddress
+    ipAddress = Get-LocalIpAddress
   }
   $cfg = @{
     serverUrl = $ServerUrl
@@ -249,6 +258,8 @@ public static class LccIdleHelper {
 
 $script:WarningScriptPath = Join-Path $ConfigDir 'peripheral-warning.ps1'
 $script:MessageScriptPath = Join-Path $ConfigDir 'message.ps1'
+$script:CheckinScriptPath = Join-Path $ConfigDir 'checkin-gate.ps1'
+$script:ScreenshotScriptPath = Join-Path $ConfigDir 'capture-screenshot.ps1'
 $script:lastWarningKey = $null
 $script:warningActive = $false
 $script:idleHelperLoaded = $false
@@ -376,6 +387,384 @@ function Show-Message {
   param([string]$Text)
   Ensure-MessageScript
   $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Text "{1}"' -f $script:MessageScriptPath, ($Text -replace '"', '""')
+  Invoke-Interactive -FilePath 'powershell.exe' -ArgumentList $argLine
+}
+
+function Get-LocalMacAddress {
+  try {
+    $adapter = Get-NetAdapter -ErrorAction Stop | Where-Object { $_.Status -eq 'Up' -and $_.MacAddress } | Select-Object -First 1
+    if ($adapter -and $adapter.MacAddress) { return ($adapter.MacAddress -replace '[-:]', '').ToLower() }
+  } catch {}
+  try {
+    $adapter = Get-CimInstance Win32_NetworkAdapter -ErrorAction SilentlyContinue | Where-Object { $_.NetConnectionStatus -eq 2 -and $_.MACAddress } | Select-Object -First 1
+    if ($adapter -and $adapter.MACAddress) { return ($adapter.MACAddress -replace '[-:]', '').ToLower() }
+  } catch {}
+  return ''
+}
+
+function Get-LocalIpAddress {
+  try {
+    $ip = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {
+      $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254*' -and $_.IPAddress -notlike 'fe80:*'
+    } | Select-Object -First 1
+    if ($ip) { return $ip.IPAddress }
+  } catch {}
+  return ''
+}
+
+function Send-WakeOnLan {
+  param([string]$Mac, [int]$Port = 9)
+  $macHex = ($Mac -replace '[^0-9a-fA-F]', '').ToLower()
+  if ($macHex.Length -ne 12) { throw "Invalid MAC address: $Mac" }
+  $payload = New-Object byte[] (6 + 16 * 6)
+  for ($i = 0; $i -lt 6; $i++) { $payload[$i] = 0xFF }
+  for ($i = 0; $i -lt 16; $i++) {
+    for ($j = 0; $j -lt 6; $j++) {
+      $payload[6 + $i * 6 + $j] = [Convert]::ToByte($macHex.Substring($j * 2, 2), 16)
+    }
+  }
+
+  $broadcasts = New-Object System.Collections.Generic.HashSet[string]
+  [void]$broadcasts.Add('255.255.255.255')
+  try {
+    $localIps = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {
+      $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254*'
+    }
+    foreach ($local in $localIps) {
+      try {
+        $mask = (New-Object System.Net.IPAddress ([UInt32](0xFFFFFFFF -shl (32 - $local.PrefixLength)))).GetAddressBytes()
+        $addr = [System.Net.IPAddress]::Parse($local.IPAddress).GetAddressBytes()
+        $bc = New-Object byte[] 4
+        for ($i = 0; $i -lt 4; $i++) { $bc[$i] = $addr[$i] -bor (-bnot $mask[$i]) }
+        [void]$broadcasts.Add([string]::Join('.', $bc))
+      } catch {}
+    }
+  } catch {}
+
+  $sent = 0
+  foreach ($target in $broadcasts) {
+    try {
+      $client = New-Object System.Net.Sockets.UdpClient
+      try {
+        $client.EnableBroadcast = $true
+        [void]$client.Send($payload, $payload.Length, $target, $Port)
+        $sent++
+      } finally { $client.Close() }
+    } catch {}
+  }
+  if ($sent -eq 0) { throw 'Could not send the wake packet on any network interface' }
+  return $sent
+}
+
+function Get-DriveInstanceId {
+  param([string]$Letter)
+  if (-not $Letter) { return '' }
+  try {
+    $part = Get-CimInstance -Query ("ASSOCIATORS OF {{Win32_LogicalDisk.DeviceID='{0}:'}} WHERE AssocClass=Win32_LogicalDiskToPartition" -f $Letter) -ErrorAction Stop | Select-Object -First 1
+    if ($part) {
+      $disk = Get-CimInstance -Query ("ASSOCIATORS OF {{Win32_DiskPartition.DeviceID='{0}'}} WHERE AssocClass=Win32_DiskToPartition" -f $part.DeviceID) -ErrorAction Stop | Select-Object -First 1
+      if ($disk -and $disk.PNPDeviceID) { return [string]$disk.PNPDeviceID }
+    }
+  } catch {}
+  return ''
+}
+
+function Get-PhoneDevices {
+  $result = @()
+  try {
+    $devices = @(Get-PnpDevice -Class 'WPD', 'Image', 'PortableDevices' -PresentOnly -ErrorAction SilentlyContinue)
+    foreach ($dev in $devices) {
+      if (-not $dev.InstanceId) { continue }
+      $name = if ($dev.FriendlyName) { $dev.FriendlyName } else { $dev.InstanceId }
+      $result += [PSCustomObject]@{
+        InstanceId = $dev.InstanceId
+        Name = $name
+      }
+    }
+  } catch {}
+  return $result
+}
+
+function Block-UsbDevice {
+  param([string]$InstanceId)
+  try {
+    Disable-PnpDevice -InstanceId $InstanceId -Confirm:$false -ErrorAction Stop | Out-Null
+    return $true
+  } catch {}
+  try {
+    & pnputil.exe /disable-device "$InstanceId" 2>$null | Out-Null
+    return $true
+  } catch {}
+  return $false
+}
+
+function Enable-UsbDevice {
+  param([string]$InstanceId)
+  try {
+    Enable-PnpDevice -InstanceId $InstanceId -Confirm:$false -ErrorAction Stop | Out-Null
+    return $true
+  } catch {}
+  try {
+    & pnputil.exe /enable-device "$InstanceId" 2>$null | Out-Null
+    return $true
+  } catch {}
+  return $false
+}
+
+function Ensure-ScreenshotScript {
+  $content = @'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$bounds = [System.Drawing.Rectangle]::Empty
+foreach ($screen in [System.Windows.Forms.Screen]::AllScreens) {
+  $bounds = [System.Drawing.Rectangle]::Union($bounds, $screen.Bounds)
+}
+$bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+try {
+  $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+} finally {
+  $g.Dispose()
+}
+$out = Join-Path $env:TEMP 'labcc-screenshot.png'
+$bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+$bmp.Dispose()
+'@
+  Set-Content -LiteralPath $script:ScreenshotScriptPath -Value $content -Encoding UTF8
+}
+
+function Capture-Screenshot {
+  Ensure-ScreenshotScript
+  $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $script:ScreenshotScriptPath
+  Invoke-Interactive -FilePath 'powershell.exe' -ArgumentList $argLine
+  Start-Sleep -Milliseconds 1200
+  $path = Join-Path $env:TEMP 'labcc-screenshot.png'
+  if (-not (Test-Path -LiteralPath $path)) {
+    return @{ success = $false; detail = 'Could not capture the screen (no interactive session?).' }
+  }
+  try {
+    $url = '{0}/api/agent/screenshot?token={1}' -f $ServerUrl, $config.token
+    Invoke-RestMethod -Uri $url -Method Post -InFile $path -ContentType 'image/png' -TimeoutSec 60 | Out-Null
+    return @{ success = $true; detail = 'Screenshot captured and uploaded.' }
+  } catch {
+    return @{ success = $false; detail = $_.Exception.Message }
+  } finally {
+    Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Ensure-CheckinScript {
+  $content = @'
+param([string]$ServerUrl = '', [string]$ConfigPath = '', [string]$UserName = '')
+$ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$script:submitted = $false
+$script:photoFileId = ''
+
+function Read-Token {
+  try {
+    if (-not (Test-Path -LiteralPath $ConfigPath)) { return '' }
+    $cfg = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    return [string]$cfg.token
+  } catch { return '' }
+}
+
+function Upload-Photo {
+  param([string]$Path)
+  try {
+    $token = Read-Token
+    $url = '{0}/api/agent/upload?token={1}' -f $ServerUrl, $token
+    $resp = Invoke-RestMethod -Uri $url -Method Post -InFile $Path -ContentType 'image/jpeg' -TimeoutSec 60
+    return [string]$resp.fileId
+  } catch { return '' }
+}
+
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'Student check-in required'
+$form.WindowState = [System.Windows.Forms.FormWindowState]::Maximized
+$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+$form.TopMost = $true
+$form.BackColor = [System.Drawing.Color]::FromArgb(240, 242, 245)
+$form.KeyPreview = $true
+
+$form.Add_KeyDown({
+  param($sender, $e)
+  if ($e.Alt -and $e.KeyCode -eq [System.Windows.Forms.Keys]::F4) { $e.SuppressKeyPress = $true }
+  if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Escape) { $e.SuppressKeyPress = $true }
+})
+
+$form.Add_FormClosing({
+  param($sender, $e)
+  if (-not $script:submitted) { $e.Cancel = $true }
+})
+
+$panel = New-Object System.Windows.Forms.Panel
+$panel.Dock = [System.Windows.Forms.DockStyle]::Fill
+$panel.Padding = New-Object System.Windows.Forms.Padding(24)
+$form.Controls.Add($panel)
+
+$flow = New-Object System.Windows.Forms.FlowLayoutPanel
+$flow.Dock = [System.Windows.Forms.DockStyle]::Fill
+$flow.FlowDirection = [System.Windows.Forms.FlowDirection]::TopDown
+$flow.WrapContents = $false
+$flow.AutoScroll = $true
+$panel.Controls.Add($flow)
+
+function New-Heading {
+  param([string]$Text, [System.Drawing.Color]$Color, [int]$Size)
+  $label = New-Object System.Windows.Forms.Label
+  $label.Text = $Text
+  $label.Font = New-Object System.Drawing.Font('Segoe UI', $Size, [System.Drawing.FontStyle]::Bold)
+  $label.ForeColor = $Color
+  $label.AutoSize = $true
+  $label.Margin = New-Object System.Windows.Forms.Padding(0, 12, 0, 4)
+  return $label
+}
+
+$flow.Controls.Add((New-Heading -Text 'STUDENT CHECK-IN REQUIRED' -Color ([System.Drawing.Color]::FromArgb(200, 30, 30)) -Size 30))
+$flow.Controls.Add((New-Heading -Text 'You must fill in the details below before you can use this computer.' -Color ([System.Drawing.Color]::FromArgb(80, 80, 90)) -Size 13))
+
+function New-Textbox {
+  param([string]$Placeholder, [bool]$Required = $true)
+  $box = New-Object System.Windows.Forms.TextBox
+  $box.Font = New-Object System.Drawing.Font('Segoe UI', 14)
+  $box.Width = 380
+  $box.Margin = New-Object System.Windows.Forms.Padding(0, 4, 0, 4)
+  return $box
+}
+
+$nameBox = New-Textbox
+$phoneBox = New-Textbox
+$admissionBox = New-Textbox
+$emailBox = New-Textbox
+
+$flow.Controls.Add((New-Heading -Text 'Full name *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
+$flow.Controls.Add($nameBox)
+$flow.Controls.Add((New-Heading -Text 'Phone number *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
+$flow.Controls.Add($phoneBox)
+$flow.Controls.Add((New-Heading -Text 'Admission / ID number *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
+$flow.Controls.Add($admissionBox)
+$flow.Controls.Add((New-Heading -Text 'Email (optional)' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
+$flow.Controls.Add($emailBox)
+
+$photoRow = New-Object System.Windows.Forms.FlowLayoutPanel
+$photoRow.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
+$photoRow.AutoSize = $true
+$photoRow.Margin = New-Object System.Windows.Forms.Padding(0, 8, 0, 0)
+
+$photoBox = New-Object System.Windows.Forms.PictureBox
+$photoBox.Size = New-Object System.Drawing.Size(120, 120)
+$photoBox.BackColor = [System.Drawing.Color]::White
+$photoBox.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom
+$photoBox.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+$photoBox.Visible = $false
+
+$photoButton = New-Object System.Windows.Forms.Button
+$photoButton.Text = 'Take photo (optional)'
+$photoButton.Font = New-Object System.Drawing.Font('Segoe UI', 11)
+$photoButton.Width = 200
+$photoButton.Height = 40
+$photoButton.Add_Click({
+  try {
+    $dm = New-Object -ComObject WIA.DeviceManager
+    $cam = $dm.DeviceInfos | Where-Object { $_.Type -eq 3 } | Select-Object -First 1
+    if (-not $cam) { [System.Windows.Forms.MessageBox]::Show('No camera was found on this computer.', 'Lab Command Center') | Out-Null; return }
+    $device = $cam.Connect()
+    $captured = $device.ExecuteCommand('{AF933CAC-AC7D-4D13-9E27-84A7C3E4D5C4}')
+    $shotPath = Join-Path $env:TEMP ('labcc-photo-{0}.jpg' -f [guid]::NewGuid().ToString('N'))
+    $captured.SaveFile($shotPath)
+    $script:photoFileId = Upload-Photo $shotPath
+    $photoBox.Image = [System.Drawing.Image]::FromFile($shotPath)
+    $photoBox.Visible = $true
+    Remove-Item -LiteralPath $shotPath -Force -ErrorAction SilentlyContinue
+  } catch {
+    [System.Windows.Forms.MessageBox]::Show(('Could not take a photo: {0}' -f $_.Exception.Message), 'Lab Command Center') | Out-Null
+  }
+})
+
+$photoRow.Controls.Add($photoButton)
+$photoRow.Controls.Add($photoBox)
+$flow.Controls.Add($photoRow)
+
+$status = New-Object System.Windows.Forms.Label
+$status.ForeColor = [System.Drawing.Color]::FromArgb(200, 30, 30)
+$status.Font = New-Object System.Drawing.Font('Segoe UI', 11)
+$status.AutoSize = $true
+$status.Margin = New-Object System.Windows.Forms.Padding(0, 8, 0, 0)
+$flow.Controls.Add($status)
+
+$submit = New-Object System.Windows.Forms.Button
+$submit.Text = 'Check in'
+$submit.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
+$submit.BackColor = [System.Drawing.Color]::FromArgb(24, 108, 220)
+$submit.ForeColor = [System.Drawing.Color]::White
+$submit.Width = 200
+$submit.Height = 46
+$submit.Margin = New-Object System.Windows.Forms.Padding(0, 14, 0, 0)
+$submit.Add_Click({
+  $name = $nameBox.Text.Trim()
+  $phone = $phoneBox.Text.Trim()
+  $admission = $admissionBox.Text.Trim()
+  if (-not $name -or -not $phone -or -not $admission) {
+    $status.Text = 'Please fill in your name, phone number, and admission number.'
+    return
+  }
+  $submit.Enabled = $false
+  $status.Text = 'Submitting…'
+  try {
+    $token = Read-Token
+    $body = @{
+      token = $token
+      userName = $UserName
+      studentName = $name
+      phone = $phone
+      admissionNo = $admission
+      email = ($emailBox.Text.Trim() -replace '\s+', ' ')
+      photoFileId = $script:photoFileId
+    }
+    $json = $body | ConvertTo-Json -Compress -Depth 4
+    Invoke-RestMethod -Uri ('{0}/api/agent/checkin' -f $ServerUrl) -Method Post -ContentType 'application/json' -Body $json -TimeoutSec 60 | Out-Null
+    $script:submitted = $true
+    $form.Close()
+  } catch {
+    $status.Text = 'Could not reach the server. Try again in a moment.'
+    $submit.Enabled = $true
+  }
+})
+$flow.Controls.Add($submit)
+
+[System.Windows.Forms.Application]::Run($form)
+'@
+  Set-Content -LiteralPath $script:CheckinScriptPath -Value $content -Encoding UTF8
+}
+
+function Get-CheckinGateRunning {
+  try {
+    $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue)
+    foreach ($proc in $procs) {
+      if ($proc.CommandLine -like '*checkin-gate.ps1*') { return $true }
+    }
+  } catch {}
+  return $false
+}
+
+function Stop-CheckinGate {
+  try {
+    $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue)
+    foreach ($proc in $procs) {
+      if ($proc.CommandLine -like '*checkin-gate.ps1*') {
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+      }
+    }
+  } catch {}
+}
+
+function Show-CheckinGate {
+  param([string]$UserName)
+  Ensure-CheckinScript
+  $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -UserName "{3}"' -f $script:CheckinScriptPath, $ServerUrl, $ConfigPath, ($UserName -replace '"', '""')
   Invoke-Interactive -FilePath 'powershell.exe' -ArgumentList $argLine
 }
 
@@ -680,11 +1069,12 @@ function Execute-Action {
     switch ($actionName) {
       'lock' {
         & rundll32.exe user32.dll,LockWorkStation 2>$null
-        $result = @{ success = $true }
+        $result = @{ success = $true; detail = 'Workstation locked; check-in will be required to use it again.' }
         break
       }
       'unlock' {
-        $result = @{ success = $true; detail = 'Unlock requires credentials; acknowledged.' }
+        Stop-CheckinGate
+        $result = @{ success = $true; detail = 'Computer unlocked; check-in requirement cleared.' }
         break
       }
       'restart' {
@@ -693,7 +1083,18 @@ function Execute-Action {
         break
       }
       'wake' {
-        $result = @{ success = $true; detail = 'Wake-on-LAN is sent from the server; acknowledged.' }
+        $result = @{ success = $true; detail = 'Wake-on-LAN is relayed by another online computer.' }
+        break
+      }
+      'wol_relay' {
+        try {
+          $targetMac = [string]$payload.targetMac
+          if (-not $targetMac) { $result = @{ success = $false; detail = 'Missing target MAC.' } ; break }
+          $sent = Send-WakeOnLan -Mac $targetMac
+          $result = @{ success = $true; detail = ('Wake packet for {0} sent on {1} interface(s).' -f $targetMac, $sent) }
+        } catch {
+          $result = @{ success = $false; detail = $_.Exception.Message }
+        }
         break
       }
       'send_message' {
@@ -704,7 +1105,7 @@ function Execute-Action {
         break
       }
       'remote_view' {
-        $result = @{ success = $true; detail = 'Remote view is not supported by the agent yet.' }
+        $result = Capture-Screenshot
         break
       }
       'remote_control' {
@@ -886,6 +1287,8 @@ try {
         userName = $user
         os = $config.os
         agentVersion = $script:AgentVersion
+        macAddress = Get-LocalMacAddress
+        ipAddress = Get-LocalIpAddress
       }
       if ($null -ne $av.enabled) { $hbBody.avEnabled = $av.enabled }
       if ($av.signature) { $hbBody.avSignature = $av.signature }
@@ -902,7 +1305,47 @@ try {
         }
       }
 
+      # ---- check-in gate -----------------------------------------------------
+      $isSystemUser = ($user -match '(?i)^nt authority\\') -or ($user -match '\$$')
+      if ($user -and -not $isSystemUser) {
+        $cfgNow = Get-Config
+        $gateForUser = ''
+        if ($cfgNow.PSObject.Properties.Name -contains 'gateUser') { $gateForUser = [string]$cfgNow.gateUser }
+        $gateNeeded = ($hb.computer.checkinRequired -eq $true) -or ($gateForUser -ne $user)
+        if ($gateNeeded -and -not (Get-CheckinGateRunning)) {
+          Show-CheckinGate -UserName $user
+          $cfgNow | Add-Member -NotePropertyName gateUser -NotePropertyValue $user -Force
+          Save-Config $cfgNow
+          Write-Log ('Check-in gate shown for user {0}' -f $user)
+        }
+      }
+
       # ---- USB handling ---------------------------------------------------
+      $restrictive = ($hb.computer.usbState -eq 'blocked') -or ($hb.computer.usbState -eq 'review')
+      $approvedIds = @()
+      if ($hb.allowedDeviceIds) { $approvedIds = @($hb.allowedDeviceIds) }
+
+      # Re-enable devices the administrator has approved
+      $cfgNow = Get-Config
+      $blockedDevices = @()
+      if ($cfgNow -and $cfgNow.PSObject.Properties.Name -contains 'blockedUsbDevices') { $blockedDevices = @($cfgNow.blockedUsbDevices) }
+      if ($blockedDevices.Count -gt 0) {
+        $remaining = @()
+        foreach ($entry in $blockedDevices) {
+          $instanceId = [string]$entry.instanceId
+          if ($instanceId -and ($approvedIds -contains $instanceId)) {
+            Enable-UsbDevice -InstanceId $instanceId
+            Write-Log ('USB device approved and re-enabled: {0}' -f $instanceId)
+          } else {
+            $remaining += $entry
+          }
+        }
+        if ($cfgNow) {
+          $cfgNow | Add-Member -NotePropertyName blockedUsbDevices -NotePropertyValue @($remaining) -Force
+          Save-Config $cfgNow
+        }
+      }
+
       $drives = Get-RemovableDrives
       $currentKeys = @()
       foreach ($drive in $drives) {
@@ -910,6 +1353,7 @@ try {
         $currentKeys += $key
         if ($script:seenUsb -notcontains $key) {
           $script:seenUsb += $key
+          $allowedByLetter = $hb.allowedUsb -and ($hb.allowedUsb -contains $drive.Letter)
           $detail = 'Drive {0}: {1} serial={2}' -f $drive.Letter, $drive.Label, $drive.Serial
           $scanNote = ''
           try {
@@ -919,6 +1363,29 @@ try {
               $scanNote = ' Defender scan completed.'
             }
           } catch {}
+          if ($restrictive -and -not $allowedByLetter) {
+            $instanceId = Get-DriveInstanceId -Letter $drive.Letter
+            if ($instanceId) {
+              Block-UsbDevice -InstanceId $instanceId
+              $cfgNow = Get-Config
+              $existing = @()
+              if ($cfgNow -and $cfgNow.PSObject.Properties.Name -contains 'blockedUsbDevices') { $existing = @($cfgNow.blockedUsbDevices) }
+              $existing += [PSCustomObject]@{ instanceId = $instanceId; key = $key; letter = $drive.Letter }
+              if ($cfgNow) {
+                $cfgNow | Add-Member -NotePropertyName blockedUsbDevices -NotePropertyValue @($existing) -Force
+                Save-Config $cfgNow
+              }
+              $detail += ' instanceId={0} (blocked, awaiting approval)' -f $instanceId
+              Write-Log ('USB drive blocked: {0}' -f $detail)
+            } else {
+              try {
+                $shell = New-Object -ComObject Shell.Application
+                $item = $shell.Namespace(17).ParseName(('{0}:' -f $drive.Letter))
+                if ($item) { $item.InvokeVerb('Eject') }
+              } catch {}
+              $detail += ' (ejected, awaiting approval)'
+            }
+          }
           $eventBody = @{ token = $config.token; type = 'usb_connected'; detail = $detail; message = $scanNote }
           try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $eventBody | Out-Null } catch {}
           Write-Log ('USB device detected: {0}' -f $detail)
@@ -926,18 +1393,40 @@ try {
       }
       $script:seenUsb = @($script:seenUsb | Where-Object { $currentKeys -contains $_ })
 
-      # ---- enforce USB policy ---------------------------------------------
-      $restrictive = ($hb.computer.usbState -eq 'blocked') -or ($hb.computer.usbState -eq 'review')
-      if ($restrictive -and $hb.allowedUsb) {
-        foreach ($drive in $drives) {
-          if ($hb.allowedUsb -notcontains $drive.Letter) {
-            try {
-              $shell = New-Object -ComObject Shell.Application
-              $item = $shell.Namespace(17).ParseName(('{0}:' -f $drive.Letter))
-              if ($item) { $item.InvokeVerb('Eject') }
-              Write-Log ('Ejected unapproved USB drive {0}:' -f $drive.Letter)
-            } catch {}
+      # Phones / portable devices (no drive letter): block usage when restrictive
+      foreach ($phone in (Get-PhoneDevices)) {
+        $key = ('instanceId={0}' -f $phone.InstanceId)
+        if ($script:seenUsb -notcontains $key) {
+          $script:seenUsb += $key
+          if ($restrictive -and ($approvedIds -notcontains $phone.InstanceId)) {
+            Block-UsbDevice -InstanceId $phone.InstanceId
+            $cfgNow = Get-Config
+            $existing = @()
+            if ($cfgNow -and $cfgNow.PSObject.Properties.Name -contains 'blockedUsbDevices') { $existing = @($cfgNow.blockedUsbDevices) }
+            $existing += [PSCustomObject]@{ instanceId = $phone.InstanceId; key = $key; letter = '' }
+            if ($cfgNow) {
+              $cfgNow | Add-Member -NotePropertyName blockedUsbDevices -NotePropertyValue @($existing) -Force
+              Save-Config $cfgNow
+            }
+            Write-Log ('Portable device blocked: {0}' -f $phone.Name)
           }
+          $detail = 'Portable device: {0} instanceId={1}' -f $phone.Name, $phone.InstanceId
+          if ($restrictive -and ($approvedIds -notcontains $phone.InstanceId)) { $detail += ' (blocked, awaiting approval)' }
+          $eventBody = @{ token = $config.token; type = 'usb_connected'; detail = $detail; message = '' }
+          try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $eventBody | Out-Null } catch {}
+        }
+      }
+
+      # Eject any remaining unapproved removable drives
+      if ($restrictive) {
+        foreach ($drive in $drives) {
+          if ($hb.allowedUsb -and ($hb.allowedUsb -contains $drive.Letter)) { continue }
+          try {
+            $shell = New-Object -ComObject Shell.Application
+            $item = $shell.Namespace(17).ParseName(('{0}:' -f $drive.Letter))
+            if ($item) { $item.InvokeVerb('Eject') }
+            Write-Log ('Ejected unapproved USB drive {0}:' -f $drive.Letter)
+          } catch {}
         }
       }
 
