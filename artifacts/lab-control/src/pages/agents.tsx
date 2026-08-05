@@ -106,7 +106,7 @@ function Agents() {
   const saveSigninSetting = () => {
     const method = signinMethod || "password";
     if (method === "shared_account" && (!sharedUser.trim() || !sharedPass)) {
-      toast.error("Enter the shared account username and password.");
+      toast.error("Enter the auto-login account username and password.");
       return;
     }
     settingsMutation.mutate({ data: signinPayload() });

@@ -13,15 +13,15 @@
 #   * inventories keyboard/mouse/monitor peripherals, warns on-screen (full
 #     screen overlay) when a baseline device is disconnected, and reports
 #     connect/disconnect to the server with the current user
-#   * shows a non-bypassable full-screen check-in form (name, phone, admission
-#     number, optional email, optional photo) when a user session starts or
-#     after an administrator lock, and records it with the server
+#   * shows a non-bypassable full-screen login form (Student and Administrator
+#     tabs) when a user session starts or after an administrator lock, and
+#     records it with the server
 #   * monitors the Security log for local account password changes (4723) and
 #     password resets (4724) and reports them as alerts/events
 #   * applies the lab sign-in method: by default it disables Windows auto-login
-#     so PCs land on the login page; with the shared-account method it creates a
-#     shared local account and enables auto-login so the check-in form is the
-#     only barrier at boot
+#     so PCs land on the Windows password page; with the "login form instead of
+#     password" method it creates a local account and enables auto-login so the
+#     login form is the only barrier at boot
 #   * logs the console user out automatically after a configurable idle time
 #   * runs antivirus scans as background jobs and reports scanning status
 #   * executes remote actions (lock, restart, message, file push/delete, AV
@@ -1178,8 +1178,9 @@ function Set-SharedAutoLogon {
 }
 
 function Apply-SigninMethod {
-  # Enforces the lab's sign-in method: shared-account auto-login when configured,
-  # otherwise it disables auto-login so the PC always shows the login page.
+  # Enforces the lab's sign-in method: "login form instead of password"
+  # auto-login when configured, otherwise it disables auto-login so the PC
+  # always shows the Windows password page.
   $cfg = Get-Config
   if (-not $cfg) { return }
   $method = ''
@@ -1194,9 +1195,9 @@ function Apply-SigninMethod {
       $cfg | Add-Member -NotePropertyName autoLogonCleaned -NotePropertyValue $false -Force
       Save-Config $cfg
       if ($enabled) {
-        $body = @{ token = $cfg.token; type = 'autologon'; message = 'Shared auto-login enabled on {0}' -f $env:COMPUTERNAME; detail = ('Auto-login set for {0}' -f $user) }
+        $body = @{ token = $cfg.token; type = 'autologon'; message = 'Auto-login enabled on {0}' -f $env:COMPUTERNAME; detail = ('Auto-login set for {0}' -f $user) }
         try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $body | Out-Null } catch {}
-        Write-Log ('Shared auto-login configured for {0}' -f $user)
+        Write-Log ('Auto-login configured for {0}' -f $user)
       }
     }
   } else {
