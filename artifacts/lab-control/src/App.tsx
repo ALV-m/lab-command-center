@@ -6,6 +6,7 @@ import {
   Cable,
   Download,
   FileText,
+  FolderUp,
   LayoutDashboard,
   Monitor,
   Server,
@@ -24,6 +25,7 @@ import Antivirus from "@/pages/antivirus";
 import Computers from "@/pages/computers";
 import Dashboard from "@/pages/dashboard";
 import Events from "@/pages/events";
+import Files from "@/pages/files";
 import Firewall from "@/pages/firewall";
 import NotFound from "@/pages/not-found";
 import Peripherals from "@/pages/peripherals";
@@ -53,6 +55,7 @@ const NAV_SECTIONS: Array<{
       { href: "/alerts", label: "Alerts", icon: AlertTriangle },
       { href: "/usb-policies", label: "USB Policy", icon: ShieldCheck },
       { href: "/peripherals", label: "Peripherals", icon: Cable },
+      { href: "/files", label: "Files", icon: FolderUp },
       { href: "/sessions", label: "Sessions", icon: Users },
     ],
   },
@@ -184,6 +187,7 @@ function Layout() {
               <Route path="/alerts" component={Alerts} />
               <Route path="/usb-policies" component={UsbPolicies} />
               <Route path="/peripherals" component={Peripherals} />
+              <Route path="/files" component={Files} />
               <Route path="/antivirus" component={Antivirus} />
               <Route path="/firewall" component={Firewall} />
               <Route path="/sessions" component={Sessions} />

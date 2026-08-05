@@ -81,3 +81,167 @@ export const usePushFileToComputer = <TError = ErrorType<unknown>, TContext = un
   { computerId: number; file: File },
   TContext
 > => useMutation(getPushFileToComputerMutationOptions(options));
+
+export interface BroadcastPushFileResult {
+  fileName: string;
+  size: number;
+  queued: number;
+}
+
+export const broadcastPushFileUrl = (): string => `/api/lab/files/broadcast`;
+
+export const broadcastPushFile = async (
+  file: File,
+  computerIds?: number[],
+  initiatedBy?: string,
+  options?: Parameters<typeof customFetch>[1],
+): Promise<BroadcastPushFileResult> => {
+  const headers: Record<string, string> = {
+    "x-file-name": encodeURIComponent(file.name),
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+  if (computerIds && computerIds.length > 0) {
+    headers["x-computer-ids"] = computerIds.join(",");
+  }
+  if (initiatedBy) {
+    headers["x-initiated-by"] = initiatedBy;
+  }
+  return customFetch<BroadcastPushFileResult>(broadcastPushFileUrl(), {
+    ...options,
+    method: "POST",
+    headers,
+    body: file,
+  });
+};
+
+export const getBroadcastPushFileMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof broadcastPushFile>>,
+      TError,
+      { file: File; computerIds?: number[]; initiatedBy?: string },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseMutationOptions<
+  Awaited<ReturnType<typeof broadcastPushFile>>,
+  TError,
+  { file: File; computerIds?: number[]; initiatedBy?: string },
+  TContext
+> => {
+  const mutationKey = ["broadcastPushFile"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof broadcastPushFile>>,
+    { file: File; computerIds?: number[]; initiatedBy?: string }
+  > = (props) => {
+    const { file, computerIds, initiatedBy } = props ?? {};
+    return broadcastPushFile(file, computerIds, initiatedBy, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export const useBroadcastPushFile = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof broadcastPushFile>>,
+      TError,
+      { file: File; computerIds?: number[]; initiatedBy?: string },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseMutationResult<
+  Awaited<ReturnType<typeof broadcastPushFile>>,
+  TError,
+  { file: File; computerIds?: number[]; initiatedBy?: string },
+  TContext
+> => useMutation(getBroadcastPushFileMutationOptions(options));
+
+export interface BroadcastDeleteFilesInput {
+  path: string;
+  computerIds?: number[];
+  initiatedBy?: string;
+}
+
+export interface BroadcastDeleteFilesResult {
+  queued: number;
+}
+
+export const broadcastDeleteFilesUrl = (): string => `/api/lab/files/delete-broadcast`;
+
+export const broadcastDeleteFiles = async (
+  data: BroadcastDeleteFilesInput,
+  options?: SecondParameter<typeof customFetch>,
+): Promise<BroadcastDeleteFilesResult> => {
+  return customFetch<BroadcastDeleteFilesResult>(broadcastDeleteFilesUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(data),
+  });
+};
+
+export const getBroadcastDeleteFilesMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof broadcastDeleteFiles>>,
+      TError,
+      BroadcastDeleteFilesInput,
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseMutationOptions<
+  Awaited<ReturnType<typeof broadcastDeleteFiles>>,
+  TError,
+  BroadcastDeleteFilesInput,
+  TContext
+> => {
+  const mutationKey = ["broadcastDeleteFiles"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof broadcastDeleteFiles>>,
+    BroadcastDeleteFilesInput
+  > = (props) => {
+    const { path, computerIds, initiatedBy } = props ?? {};
+    return broadcastDeleteFiles({ path, computerIds, initiatedBy }, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export const useBroadcastDeleteFiles = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof broadcastDeleteFiles>>,
+      TError,
+      BroadcastDeleteFilesInput,
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseMutationResult<
+  Awaited<ReturnType<typeof broadcastDeleteFiles>>,
+  TError,
+  BroadcastDeleteFilesInput,
+  TContext
+> => useMutation(getBroadcastDeleteFilesMutationOptions(options));
