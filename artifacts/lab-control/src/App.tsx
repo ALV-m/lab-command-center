@@ -55,7 +55,7 @@ const NAV_SECTIONS: Array<{
       { href: "/alerts", label: "Alerts", icon: AlertTriangle },
       { href: "/usb-policies", label: "USB Policy", icon: ShieldCheck },
       { href: "/peripherals", label: "Peripherals", icon: Cable },
-      { href: "/files", label: "Files", icon: FolderUp },
+      { href: "/files", label: "File Transfer", icon: FolderUp },
       { href: "/sessions", label: "Sessions", icon: Users },
     ],
   },

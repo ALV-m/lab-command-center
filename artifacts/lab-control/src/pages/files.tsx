@@ -105,7 +105,7 @@ function Files() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Files</h1>
+          <h1 className="text-2xl font-bold">File Transfer Manager</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Send files to client PCs or delete files and folders on them.
           </p>
