@@ -403,11 +403,44 @@ function Receive-PushedFile {
   $fileName = 'downloaded'
   if ($Payload.fileName) { $fileName = (Split-Path $Payload.fileName -Leaf) }
   $dest = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads'
+  if ($Payload.destination) {
+    $custom = [string]$Payload.destination
+    if ([System.IO.Path]::IsPathRooted($custom)) {
+      $dest = $custom
+    } else {
+      $dest = Join-Path $dest $custom
+    }
+  }
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
   $destPath = Join-Path $dest $fileName
   $url = '{0}/api/agent/files/download/{1}?token={2}' -f $ServerUrl, $Payload.fileId, $config.token
   Invoke-WebRequest -Uri $url -OutFile $destPath -UseBasicParsing -TimeoutSec 120
   return @{ success = $true; detail = ('Saved to {0}' -f $destPath) }
+}
+
+function Get-DirListing {
+  param([string]$Path)
+  if (-not $Path) { $Path = 'C:\' }
+  if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+    throw ('Directory not found: {0}' -f $Path)
+  }
+  $entries = @()
+  Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | ForEach-Object {
+    $isDir = $_.PSIsContainer
+    $size = 0
+    $modified = $null
+    try {
+      if (-not $isDir) { $size = [long]$_.Length }
+      $modified = $_.LastWriteTime.ToString('o')
+    } catch {}
+    $entries += @{
+      name = $_.Name
+      isDir = $isDir
+      size = $size
+      modifiedAt = $modified
+    }
+  }
+  return @{ path = $Path; entries = $entries }
 }
 
 function Remove-TargetFile {
@@ -693,6 +726,19 @@ function Execute-Action {
       }
       'delete_file' {
         $result = Remove-TargetFile $payload
+        break
+      }
+      'list_files' {
+        $target = 'C:\'
+        if ($payload.path) { $target = [string]$payload.path }
+        try {
+          $listing = Get-DirListing -Path $target
+          $body = @{ token = $config.token; path = $listing.path; entries = $listing.entries }
+          Invoke-ApiJson -Method 'POST' -Path '/api/agent/files/list' -Body $body | Out-Null
+          $result = @{ success = $true; detail = ('Listed {0} item(s) in {1}' -f @($listing.entries).Count, $listing.path) }
+        } catch {
+          $result = @{ success = $false; detail = $_.Exception.Message }
+        }
         break
       }
       'av_scan' {

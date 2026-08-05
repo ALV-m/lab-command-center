@@ -1,16 +1,19 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { db } from "@workspace/db";
-import { actionsTable, computersTable, eventsTable } from "@workspace/db";
+import { actionsTable, computersTable, eventsTable, fileEntriesTable } from "@workspace/db";
 import {
   BroadcastDeleteFilesBody,
   BroadcastDeleteFilesResponse,
   BroadcastPushFileResponse,
+  BrowseFilesParams,
+  BrowseFilesQuery,
+  BrowseFilesResponse,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -22,6 +25,8 @@ const UPLOADS_DIR = path.join(
 );
 
 await mkdir(UPLOADS_DIR, { recursive: true });
+
+const dirKey = (value: string): string => value.replaceAll("\\", "/").replace(/\/+$/, "") || "/";
 
 const parseIdsHeader = (value: unknown): number[] | null => {
   if (typeof value !== "string") return null;
@@ -72,6 +77,10 @@ router.post(
       (typeof req.headers["x-initiated-by"] === "string"
         ? req.headers["x-initiated-by"].trim()
         : "") || "Lab administrator";
+    const destination =
+      typeof req.headers["x-destination"] === "string"
+        ? req.headers["x-destination"].trim()
+        : "";
 
     const computers = await resolveComputers(parseIdsHeader(req.headers["x-computer-ids"]));
     const targets = computers.filter((computer) => Boolean(computer.agentToken));
@@ -90,8 +99,14 @@ router.post(
       await db.insert(actionsTable).values({
         computerId: computer.id,
         action: "push_file",
-        message: `Push file "${safeName}" to ${computer.name}`,
-        payload: JSON.stringify({ fileId, fileName: safeName, size }),
+        message: destination
+          ? `Push file "${safeName}" to ${computer.name} (${destination})`
+          : `Push file "${safeName}" to ${computer.name}`,
+        payload: JSON.stringify(
+          destination
+            ? { fileId, fileName: safeName, size, destination }
+            : { fileId, fileName: safeName, size },
+        ),
         status: "queued",
       });
     }
@@ -148,6 +163,120 @@ router.post("/lab/files/delete-broadcast", async (req, res): Promise<void> => {
   });
 
   res.json(BroadcastDeleteFilesResponse.parse({ queued: targets.length }));
+});
+
+router.get("/lab/computers/:computerId/files/browse", async (req, res): Promise<void> => {
+  const params = BrowseFilesParams.safeParse(req.params);
+  const query = BrowseFilesQuery.safeParse(req.query);
+  if (!params.success || !query.success) {
+    res.status(400).json({ error: "Invalid request" });
+    return;
+  }
+
+  const [computer] = await db
+    .select()
+    .from(computersTable)
+    .where(eq(computersTable.id, params.data.computerId))
+    .limit(1);
+  if (!computer) {
+    res.status(404).json({ error: "Computer not found" });
+    return;
+  }
+  if (!computer.agentToken) {
+    res.json(
+      BrowseFilesResponse.parse({
+        path: query.data.path ?? "C:\\",
+        pending: false,
+        error: "This PC has no agent installed.",
+        entries: [],
+      }),
+    );
+    return;
+  }
+
+  const target = query.data.path || "C:\\";
+  const key = dirKey(target);
+  const listedAtCutoff = new Date(Date.now() - 15_000);
+
+  const entries = await db
+    .select()
+    .from(fileEntriesTable)
+    .where(
+      and(
+        eq(fileEntriesTable.computerId, computer.id),
+        eq(fileEntriesTable.path, key),
+      ),
+    )
+    .orderBy(sql`${fileEntriesTable.isDir} desc`, fileEntriesTable.name);
+
+  const [fresh] = await db
+    .select({ id: fileEntriesTable.id })
+    .from(fileEntriesTable)
+    .where(
+      and(
+        eq(fileEntriesTable.computerId, computer.id),
+        eq(fileEntriesTable.path, key),
+        sql`${fileEntriesTable.listedAt} >= ${listedAtCutoff}`,
+      ),
+    )
+    .limit(1);
+
+  if (fresh) {
+    res.json(
+      BrowseFilesResponse.parse({
+        path: target,
+        pending: false,
+        entries: entries.map((entry) => ({
+          name: entry.name,
+          isDir: entry.isDir,
+          size: entry.size,
+          modifiedAt: entry.modifiedAt,
+        })),
+      }),
+    );
+    return;
+  }
+
+  const [queued] = await db
+    .select({ id: actionsTable.id })
+    .from(actionsTable)
+    .where(
+      and(
+        eq(actionsTable.computerId, computer.id),
+        eq(actionsTable.action, "list_files"),
+        eq(actionsTable.status, "queued"),
+      ),
+    )
+    .limit(1);
+
+  if (!queued) {
+    await db.insert(actionsTable).values({
+      computerId: computer.id,
+      action: "list_files",
+      message: `List directory "${target}" on ${computer.name}`,
+      payload: JSON.stringify({ path: target }),
+      status: "queued",
+    });
+    await db.insert(eventsTable).values({
+      type: "operator_action",
+      message: `Directory listing requested for ${target} on ${computer.name} by Lab administrator`,
+      actor: "Lab administrator",
+      computerName: computer.name,
+    });
+  }
+
+  res.json(
+    BrowseFilesResponse.parse({
+      path: target,
+      pending: true,
+      entries: entries.map((entry) => ({
+        name: entry.name,
+        isDir: entry.isDir,
+        size: entry.size,
+        modifiedAt: entry.modifiedAt,
+      })),
+    }),
+  );
 });
 
 export default router;

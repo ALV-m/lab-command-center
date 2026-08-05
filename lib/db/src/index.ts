@@ -173,6 +173,20 @@ const DDL_STATEMENTS = [
     finished_at timestamptz
   );
   `,
+  `
+  CREATE TABLE IF NOT EXISTS lab_file_entries (
+    id serial PRIMARY KEY,
+    computer_id integer NOT NULL,
+    path text NOT NULL,
+    name text NOT NULL,
+    is_dir boolean NOT NULL DEFAULT false,
+    size bigint NOT NULL DEFAULT 0,
+    modified_at text,
+    listed_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS lab_file_entries_computer_path_idx
+    ON lab_file_entries (computer_id, path);
+  `,
 ];
 
 export async function ensureSchema(): Promise<void> {

@@ -11,6 +11,7 @@ import {
   alertsTable,
   computersTable,
   eventsTable,
+  fileEntriesTable,
   scanResultsTable,
   scanRunsTable,
   settingsTable,
@@ -28,6 +29,7 @@ import {
   AgentHeartbeatResponse,
   AgentRegisterBody,
   AgentRegisterResponse,
+  ReportFileListingBody,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -367,6 +369,49 @@ router.post("/agent/actions/:actionId/complete", async (req, res): Promise<void>
     actor: "Agent",
     computerName: computer.name,
   });
+
+  res.json(AgentActionCompleteResponse.parse({ ok: true }));
+});
+
+router.post("/agent/files/list", async (req, res): Promise<void> => {
+  const body = ReportFileListingBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
+    return;
+  }
+
+  const [computer] = await db
+    .select()
+    .from(computersTable)
+    .where(eq(computersTable.agentToken, body.data.token))
+    .limit(1);
+  if (!computer) {
+    res.status(401).json({ error: "Invalid agent token" });
+    return;
+  }
+
+  const pathKey = body.data.path.replaceAll("\\", "/").replace(/\/+$/, "") || "/";
+  await db
+    .delete(fileEntriesTable)
+    .where(
+      and(
+        eq(fileEntriesTable.computerId, computer.id),
+        eq(fileEntriesTable.path, pathKey),
+      ),
+    );
+
+  if (body.data.entries.length > 0) {
+    await db.insert(fileEntriesTable).values(
+      body.data.entries.map((entry) => ({
+        computerId: computer.id,
+        path: pathKey,
+        name: entry.name,
+        isDir: entry.isDir,
+        size: entry.size,
+        modifiedAt: entry.modifiedAt,
+      })),
+    );
+  }
 
   res.json(AgentActionCompleteResponse.parse({ ok: true }));
 });

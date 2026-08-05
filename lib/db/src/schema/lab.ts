@@ -1,5 +1,6 @@
 import { createInsertSchema } from "drizzle-zod";
 import {
+  bigint,
   boolean,
   integer,
   pgTable,
@@ -128,6 +129,17 @@ export const scanResultsTable = pgTable("lab_scan_results", {
   status: text("status").notNull().default("queued"),
   detail: text("detail"),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
+});
+
+export const fileEntriesTable = pgTable("lab_file_entries", {
+  id: serial("id").primaryKey(),
+  computerId: integer("computer_id").notNull(),
+  path: text("path").notNull(),
+  name: text("name").notNull(),
+  isDir: boolean("is_dir").notNull().default(false),
+  size: bigint("size", { mode: "number" }).notNull().default(0),
+  modifiedAt: text("modified_at"),
+  listedAt: timestamp("listed_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const insertComputerSchema = createInsertSchema(computersTable).omit({ id: true });

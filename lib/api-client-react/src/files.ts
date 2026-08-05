@@ -1,8 +1,13 @@
 import {
   useMutation,
+  useQuery,
   type MutationFunction,
+  type QueryFunction,
+  type QueryKey,
   type UseMutationOptions,
   type UseMutationResult,
+  type UseQueryOptions,
+  type UseQueryResult,
 } from "@tanstack/react-query";
 
 import { customFetch } from "./custom-fetch";
@@ -94,6 +99,7 @@ export const broadcastPushFile = async (
   file: File,
   computerIds?: number[],
   initiatedBy?: string,
+  destination?: string,
   options?: Parameters<typeof customFetch>[1],
 ): Promise<BroadcastPushFileResult> => {
   const headers: Record<string, string> = {
@@ -106,6 +112,9 @@ export const broadcastPushFile = async (
   if (initiatedBy) {
     headers["x-initiated-by"] = initiatedBy;
   }
+  if (destination) {
+    headers["x-destination"] = destination;
+  }
   return customFetch<BroadcastPushFileResult>(broadcastPushFileUrl(), {
     ...options,
     method: "POST",
@@ -113,6 +122,13 @@ export const broadcastPushFile = async (
     body: file,
   });
 };
+
+export interface BroadcastPushFileInput {
+  file: File;
+  computerIds?: number[];
+  initiatedBy?: string;
+  destination?: string;
+}
 
 export const getBroadcastPushFileMutationOptions = <
   TError = ErrorType<unknown>,
@@ -122,7 +138,7 @@ export const getBroadcastPushFileMutationOptions = <
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof broadcastPushFile>>,
       TError,
-      { file: File; computerIds?: number[]; initiatedBy?: string },
+      BroadcastPushFileInput,
       TContext
     >;
     request?: SecondParameter<typeof customFetch>;
@@ -130,7 +146,7 @@ export const getBroadcastPushFileMutationOptions = <
 ): UseMutationOptions<
   Awaited<ReturnType<typeof broadcastPushFile>>,
   TError,
-  { file: File; computerIds?: number[]; initiatedBy?: string },
+  BroadcastPushFileInput,
   TContext
 > => {
   const mutationKey = ["broadcastPushFile"];
@@ -142,10 +158,10 @@ export const getBroadcastPushFileMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof broadcastPushFile>>,
-    { file: File; computerIds?: number[]; initiatedBy?: string }
+    BroadcastPushFileInput
   > = (props) => {
-    const { file, computerIds, initiatedBy } = props ?? {};
-    return broadcastPushFile(file, computerIds, initiatedBy, requestOptions);
+    const { file, computerIds, initiatedBy, destination } = props ?? {};
+    return broadcastPushFile(file, computerIds, initiatedBy, destination, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -156,7 +172,7 @@ export const useBroadcastPushFile = <TError = ErrorType<unknown>, TContext = unk
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof broadcastPushFile>>,
       TError,
-      { file: File; computerIds?: number[]; initiatedBy?: string },
+      BroadcastPushFileInput,
       TContext
     >;
     request?: SecondParameter<typeof customFetch>;
@@ -164,7 +180,7 @@ export const useBroadcastPushFile = <TError = ErrorType<unknown>, TContext = unk
 ): UseMutationResult<
   Awaited<ReturnType<typeof broadcastPushFile>>,
   TError,
-  { file: File; computerIds?: number[]; initiatedBy?: string },
+  BroadcastPushFileInput,
   TContext
 > => useMutation(getBroadcastPushFileMutationOptions(options));
 
@@ -245,3 +261,73 @@ export const useBroadcastDeleteFiles = <TError = ErrorType<unknown>, TContext = 
   BroadcastDeleteFilesInput,
   TContext
 > => useMutation(getBroadcastDeleteFilesMutationOptions(options));
+
+export interface FileEntry {
+  name: string;
+  isDir: boolean;
+  size: number;
+  modifiedAt?: string | null;
+}
+
+export interface BrowseFilesResult {
+  path: string;
+  pending: boolean;
+  error?: string | null;
+  entries: FileEntry[];
+}
+
+export const browseComputerFilesUrl = (computerId: number, path: string): string =>
+  `/api/lab/computers/${computerId}/files/browse?path=${encodeURIComponent(path)}`;
+
+export const browseComputerFiles = async (
+  computerId: number,
+  path: string,
+  options?: Parameters<typeof customFetch>[1],
+): Promise<BrowseFilesResult> => {
+  return customFetch<BrowseFilesResult>(browseComputerFilesUrl(computerId, path), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getBrowseComputerFilesQueryKey = (computerId: number, path: string) =>
+  ["browseComputerFiles", computerId, path] as const;
+
+export const getBrowseComputerFilesQueryOptions = <
+  TData = Awaited<ReturnType<typeof browseComputerFiles>>,
+  TError = ErrorType<unknown>,
+>(
+  computerId: number,
+  path: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof browseComputerFiles>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryOptions<Awaited<ReturnType<typeof browseComputerFiles>>, TError, TData> & {
+  queryKey: QueryKey;
+} => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getBrowseComputerFilesQueryKey(computerId, path);
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof browseComputerFiles>>> = ({ signal }) =>
+    browseComputerFiles(computerId, path, { signal, ...requestOptions });
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof browseComputerFiles>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export function useBrowseComputerFiles<
+  TData = Awaited<ReturnType<typeof browseComputerFiles>>,
+  TError = ErrorType<unknown>,
+>(
+  computerId: number,
+  path: string,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof browseComputerFiles>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getBrowseComputerFilesQueryOptions<TData, TError>(computerId, path, options);
+  return useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+}

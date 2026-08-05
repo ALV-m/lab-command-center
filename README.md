@@ -142,6 +142,8 @@ lab-command-center/
 | GET    | `/api/security/health.csv`        | Per-PC AV/firewall health (CSV)         |
 | POST   | `/api/lab/files/broadcast`        | Send one file to all/selected PCs       |
 | POST   | `/api/lab/files/delete-broadcast` | Delete a file/folder on all/selected PCs |
+| GET    | `/api/lab/computers/:id/files/browse` | Browse a PC's folder listing       |
+| POST   | `/api/agent/files/list`           | Agent: report a directory listing        |
 
 Computer actions: `lock`, `unlock`, `restart`, `wake`, `send_message`, `remote_view`, `remote_control`, `block_usb`, `allow_usb`, `push_file`, `delete_file`, `av_scan`, `av_update`, `av_toggle`, `fw_enable`, `fw_disable`.
 
