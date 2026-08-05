@@ -112,7 +112,7 @@ export const AgentEventResponse = zod.object({
   ok: zod.boolean(),
 });
 
-export const AgentCheckinRole = zod.enum(["student", "admin"]);
+export const AgentCheckinRole = zod.enum(["student", "teacher", "visitor", "admin"]);
 
 export const AgentCheckinBody = zod.object({
   token: zod.string().min(1),

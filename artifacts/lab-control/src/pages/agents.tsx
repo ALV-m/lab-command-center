@@ -320,8 +320,9 @@ function Agents() {
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                The login form has a Student tab and an Administrator tab. Anyone entering this
-                passphrase on the Administrator tab signs in as an administrator (recorded in the
+                The login form has user-type buttons — Student, Teacher, Visitor, Administrator.
+                Students, teachers, and visitors enter their own details to sign in. Anyone entering
+                this passphrase under Administrator signs in as an administrator (recorded in the
                 Check-ins log and the dashboard opens). Leave empty to disable administrator
                 sign-in on the PCs.
               </p>
@@ -338,7 +339,7 @@ function Agents() {
               : "Each student signs into their own Windows account, then completes the login form."}
             {adminSecret || settings?.adminGateSecret
               ? " Administrator sign-in via the login form is enabled."
-              : " No administrator passphrase set — the Administrator tab is disabled."}
+              : " No administrator passphrase set — Administrator sign-in on the PCs is disabled."}
           </p>
         </CardContent>
       </Card>
@@ -370,7 +371,8 @@ function Agents() {
           <p>
             • "Lock" locks the workstation and marks it so the next sign-in shows the required login
             screen. "Unlock" clears the requirement and dismisses the form. The login screen also
-            appears whenever a user signs in to a PC, with a Student tab and an Administrator tab.
+            appears whenever a user signs in to a PC, with buttons to choose Student, Teacher,
+            Visitor, or Administrator.
           </p>
           <p>
             • With "Login form instead of password", every PC boots into one local Windows account

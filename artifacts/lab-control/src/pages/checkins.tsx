@@ -27,7 +27,7 @@ function Checkins() {
       <div>
         <h1 className="text-2xl font-bold">Check-ins</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Sign-ins submitted from each PC's login screen (student details or administrator sign-in).
+          Sign-ins submitted from each PC's login form (student/teacher/visitor details or administrator sign-in).
         </p>
       </div>
 
@@ -56,7 +56,7 @@ function Checkins() {
                 </EmptyMedia>
                 <EmptyTitle>No check-ins yet</EmptyTitle>
                 <EmptyDescription>
-                  When a student or administrator signs in on a PC running the agent, it will appear
+                  When a student, teacher, visitor, or administrator signs in on a PC running the agent, it will appear
                   here.
                 </EmptyDescription>
               </EmptyHeader>
@@ -95,6 +95,10 @@ function Checkins() {
                     <TableCell>
                       {checkin.role === "admin" ? (
                         <Badge className="bg-violet-600 text-white">Admin</Badge>
+                      ) : checkin.role === "teacher" ? (
+                        <Badge className="bg-sky-600 text-white">Teacher</Badge>
+                      ) : checkin.role === "visitor" ? (
+                        <Badge className="bg-amber-600 text-white">Visitor</Badge>
                       ) : (
                         <Badge variant="secondary">Student</Badge>
                       )}

@@ -22,7 +22,7 @@ export interface CheckinEntry {
   computerId: number;
   computerName: string;
   userName?: string | null;
-  role?: "student" | "admin" | null;
+  role?: "student" | "teacher" | "visitor" | "admin" | null;
   studentName: string;
   phone?: string | null;
   admissionNo?: string | null;

@@ -566,6 +566,7 @@ Add-Type -AssemblyName System.Drawing
 $script:submitted = $false
 $script:photoFileId = ''
 $script:role = 'student'
+$script:idRequired = $true
 
 function Read-Token {
   try {
@@ -636,53 +637,54 @@ function New-Textbox {
   return $box
 }
 
+function New-RoleButton {
+  param([string]$Text)
+  $btn = New-Object System.Windows.Forms.Button
+  $btn.Text = $Text
+  $btn.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+  $btn.Width = 150
+  $btn.Height = 44
+  $btn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+  $btn.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 0)
+  return $btn
+}
+
 $flow.Controls.Add((New-Heading -Text 'SIGN IN TO USE THIS COMPUTER' -Color ([System.Drawing.Color]::FromArgb(200, 30, 30)) -Size 28))
-$flow.Controls.Add((New-Heading -Text 'Choose Student or Administrator and complete the form before using this computer.' -Color ([System.Drawing.Color]::FromArgb(80, 80, 90)) -Size 13))
+$flow.Controls.Add((New-Heading -Text 'Choose your user type and complete the form before using this computer.' -Color ([System.Drawing.Color]::FromArgb(80, 80, 90)) -Size 13))
 
-$tabs = New-Object System.Windows.Forms.TabControl
-$tabs.Dock = [System.Windows.Forms.DockStyle]::Top
-$tabs.Height = 430
-$tabs.Font = New-Object System.Drawing.Font('Segoe UI', 11)
-$tabs.Margin = New-Object System.Windows.Forms.Padding(0, 10, 0, 0)
-$flow.Controls.Add($tabs)
+$roleRow = New-Object System.Windows.Forms.FlowLayoutPanel
+$roleRow.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
+$roleRow.AutoSize = $true
+$roleRow.Margin = New-Object System.Windows.Forms.Padding(0, 10, 0, 0)
 
-$tabStudent = New-Object System.Windows.Forms.TabPage
-$tabStudent.Text = 'Student'
-$tabStudent.BackColor = [System.Drawing.Color]::White
-$tabs.TabPages.Add($tabStudent)
+$btnStudent = New-RoleButton -Text 'Student'
+$btnTeacher = New-RoleButton -Text 'Teacher'
+$btnVisitor = New-RoleButton -Text 'Visitor'
+$btnAdmin = New-RoleButton -Text 'Administrator'
 
-$tabAdmin = New-Object System.Windows.Forms.TabPage
-$tabAdmin.Text = 'Administrator'
-$tabAdmin.BackColor = [System.Drawing.Color]::White
-$tabs.TabPages.Add($tabAdmin)
+$roleRow.Controls.Add($btnStudent)
+$roleRow.Controls.Add($btnTeacher)
+$roleRow.Controls.Add($btnVisitor)
+$roleRow.Controls.Add($btnAdmin)
+$flow.Controls.Add($roleRow)
 
-$tabs.Add_SelectedIndexChanged({
-  param($sender, $e)
-  if ($tabs.SelectedTab -eq $tabAdmin) { $script:role = 'admin' } else { $script:role = 'student' }
-})
-
-$studentFlow = New-Object System.Windows.Forms.FlowLayoutPanel
-$studentFlow.Dock = [System.Windows.Forms.DockStyle]::Fill
-$studentFlow.FlowDirection = [System.Windows.Forms.FlowDirection]::TopDown
-$studentFlow.WrapContents = $false
-$studentFlow.AutoScroll = $true
-$studentFlow.Padding = New-Object System.Windows.Forms.Padding(8)
-$studentFlow.BackColor = [System.Drawing.Color]::White
-$tabStudent.Controls.Add($studentFlow)
-
+$nameHeading = New-Heading -Text 'Full name *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
 $nameBox = New-Textbox
+$phoneHeading = New-Heading -Text 'Phone number *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
 $phoneBox = New-Textbox
-$admissionBox = New-Textbox
+$idHeading = New-Heading -Text 'Admission / ID number *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
+$idBox = New-Textbox
+$emailHeading = New-Heading -Text 'Email (optional)' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
 $emailBox = New-Textbox
 
-$studentFlow.Controls.Add((New-Heading -Text 'Full name *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
-$studentFlow.Controls.Add($nameBox)
-$studentFlow.Controls.Add((New-Heading -Text 'Phone number *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
-$studentFlow.Controls.Add($phoneBox)
-$studentFlow.Controls.Add((New-Heading -Text 'Admission / ID number *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
-$studentFlow.Controls.Add($admissionBox)
-$studentFlow.Controls.Add((New-Heading -Text 'Email (optional)' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
-$studentFlow.Controls.Add($emailBox)
+$flow.Controls.Add($nameHeading)
+$flow.Controls.Add($nameBox)
+$flow.Controls.Add($phoneHeading)
+$flow.Controls.Add($phoneBox)
+$flow.Controls.Add($idHeading)
+$flow.Controls.Add($idBox)
+$flow.Controls.Add($emailHeading)
+$flow.Controls.Add($emailBox)
 
 $photoRow = New-Object System.Windows.Forms.FlowLayoutPanel
 $photoRow.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
@@ -721,33 +723,28 @@ $photoButton.Add_Click({
 
 $photoRow.Controls.Add($photoButton)
 $photoRow.Controls.Add($photoBox)
-$studentFlow.Controls.Add($photoRow)
+$flow.Controls.Add($photoRow)
 
-$adminFlow = New-Object System.Windows.Forms.FlowLayoutPanel
-$adminFlow.Dock = [System.Windows.Forms.DockStyle]::Fill
-$adminFlow.FlowDirection = [System.Windows.Forms.FlowDirection]::TopDown
-$adminFlow.WrapContents = $false
-$adminFlow.AutoScroll = $true
-$adminFlow.Padding = New-Object System.Windows.Forms.Padding(8)
-$adminFlow.BackColor = [System.Drawing.Color]::White
-$tabAdmin.Controls.Add($adminFlow)
-
+$adminUserHeading = New-Heading -Text 'Administrator username *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
 $adminUserBox = New-Object System.Windows.Forms.TextBox
 $adminUserBox.Font = New-Object System.Drawing.Font('Segoe UI', 14)
 $adminUserBox.Width = 380
 $adminUserBox.Margin = New-Object System.Windows.Forms.Padding(0, 4, 0, 4)
 
+$adminPassHeading = New-Heading -Text 'Passphrase *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
 $adminPassBox = New-Object System.Windows.Forms.TextBox
 $adminPassBox.Font = New-Object System.Drawing.Font('Segoe UI', 14)
 $adminPassBox.Width = 380
 $adminPassBox.Margin = New-Object System.Windows.Forms.Padding(0, 4, 0, 4)
 $adminPassBox.UseSystemPasswordChar = $true
 
-$adminFlow.Controls.Add((New-Heading -Text 'Administrator username *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
-$adminFlow.Controls.Add($adminUserBox)
-$adminFlow.Controls.Add((New-Heading -Text 'Passphrase *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12))
-$adminFlow.Controls.Add($adminPassBox)
-$adminFlow.Controls.Add((New-Heading -Text 'Signing in as administrator records the sign-in in the check-in log and opens the lab dashboard for managing computers.' -Color ([System.Drawing.Color]::FromArgb(120, 120, 130)) -Size 11))
+$adminNote = New-Heading -Text 'Signing in as administrator records the sign-in in the check-in log and opens the lab dashboard for managing computers.' -Color ([System.Drawing.Color]::FromArgb(120, 120, 130)) -Size 11
+
+$flow.Controls.Add($adminUserHeading)
+$flow.Controls.Add($adminUserBox)
+$flow.Controls.Add($adminPassHeading)
+$flow.Controls.Add($adminPassBox)
+$flow.Controls.Add($adminNote)
 
 $status = New-Object System.Windows.Forms.Label
 $status.ForeColor = [System.Drawing.Color]::FromArgb(200, 30, 30)
@@ -755,6 +752,59 @@ $status.Font = New-Object System.Drawing.Font('Segoe UI', 11)
 $status.AutoSize = $true
 $status.Margin = New-Object System.Windows.Forms.Padding(0, 8, 0, 0)
 $flow.Controls.Add($status)
+
+function Select-Role {
+  param([string]$Role)
+  $script:role = $Role
+  $isAdmin = ($Role -eq 'admin')
+  $nameHeading.Visible = -not $isAdmin
+  $nameBox.Visible = -not $isAdmin
+  $phoneHeading.Visible = -not $isAdmin
+  $phoneBox.Visible = -not $isAdmin
+  $idHeading.Visible = -not $isAdmin
+  $idBox.Visible = -not $isAdmin
+  $emailHeading.Visible = -not $isAdmin
+  $emailBox.Visible = -not $isAdmin
+  $photoRow.Visible = -not $isAdmin
+  $adminUserHeading.Visible = $isAdmin
+  $adminUserBox.Visible = $isAdmin
+  $adminPassHeading.Visible = $isAdmin
+  $adminPassBox.Visible = $isAdmin
+  $adminNote.Visible = $isAdmin
+  $selected = [System.Drawing.Color]::FromArgb(24, 108, 220)
+  $idle = [System.Drawing.Color]::FromArgb(228, 231, 236)
+  foreach ($b in @($btnStudent, $btnTeacher, $btnVisitor, $btnAdmin)) {
+    if ($b.Tag -eq $Role) {
+      $b.BackColor = $selected
+      $b.ForeColor = [System.Drawing.Color]::White
+    } else {
+      $b.BackColor = $idle
+      $b.ForeColor = [System.Drawing.Color]::FromArgb(40, 40, 50)
+    }
+  }
+  if ($Role -eq 'teacher') {
+    $idHeading.Text = 'Staff / Employee ID *'
+    $script:idRequired = $true
+  } elseif ($Role -eq 'visitor') {
+    $idHeading.Text = 'Visitor ID (optional)'
+    $script:idRequired = $false
+  } else {
+    $idHeading.Text = 'Admission / ID number *'
+    $script:idRequired = $true
+  }
+  $status.Text = ''
+}
+
+$btnStudent.Tag = 'student'
+$btnTeacher.Tag = 'teacher'
+$btnVisitor.Tag = 'visitor'
+$btnAdmin.Tag = 'admin'
+$btnStudent.Add_Click({ Select-Role 'student' })
+$btnTeacher.Add_Click({ Select-Role 'teacher' })
+$btnVisitor.Add_Click({ Select-Role 'visitor' })
+$btnAdmin.Add_Click({ Select-Role 'admin' })
+
+Select-Role 'student'
 
 $submit = New-Object System.Windows.Forms.Button
 $submit.Text = 'Sign in'
@@ -801,9 +851,13 @@ $submit.Add_Click({
   } else {
     $name = $nameBox.Text.Trim()
     $phone = $phoneBox.Text.Trim()
-    $admission = $admissionBox.Text.Trim()
-    if (-not $name -or -not $phone -or -not $admission) {
-      $status.Text = 'Please fill in your name, phone number, and admission number.'
+    $id = $idBox.Text.Trim()
+    if (-not $name -or -not $phone) {
+      $status.Text = 'Please fill in your name and phone number.'
+      return
+    }
+    if ($script:idRequired -and -not $id) {
+      $status.Text = 'Please fill in your ID number.'
       return
     }
     $submit.Enabled = $false
@@ -813,10 +867,10 @@ $submit.Add_Click({
       $body = @{
         token = $token
         userName = $UserName
-        role = 'student'
+        role = $script:role
         studentName = $name
         phone = $phone
-        admissionNo = $admission
+        admissionNo = $id
         email = ($emailBox.Text.Trim() -replace '\s+', ' ')
         photoFileId = $script:photoFileId
       }
@@ -1492,12 +1546,18 @@ try {
       $isSystemUser = ($user -match '(?i)^nt authority\\') -or ($user -match '\$$')
       if ($user -and -not $isSystemUser) {
         $cfgNow = Get-Config
-        $gateForUser = ''
-        if ($cfgNow.PSObject.Properties.Name -contains 'gateUser') { $gateForUser = [string]$cfgNow.gateUser }
-        $gateNeeded = ($hb.computer.checkinRequired -eq $true) -or ($gateForUser -ne $user)
+        $sessionToken = ''
+        try {
+          $explorerProc = Get-CimInstance Win32_Process -Filter "Name = 'explorer.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.SessionId -ne 0 } | Select-Object -First 1
+          if ($explorerProc) { $sessionToken = $explorerProc.CreationDate.ToString('o') }
+        } catch {}
+        $gateSession = ''
+        if ($cfgNow.PSObject.Properties.Name -contains 'gateSession') { $gateSession = [string]$cfgNow.gateSession }
+        $gateNeeded = ($hb.computer.checkinRequired -eq $true) -or ($gateSession -ne $sessionToken)
         if ($gateNeeded -and -not (Get-CheckinGateRunning)) {
           Show-CheckinGate -UserName $user
-          $cfgNow | Add-Member -NotePropertyName gateUser -NotePropertyValue $user -Force
+          $cfgNow | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
           Save-Config $cfgNow
           Write-Log ('Check-in gate shown for user {0}' -f $user)
         }

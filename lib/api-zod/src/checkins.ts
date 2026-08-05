@@ -5,7 +5,7 @@ export const CheckinEntry = zod.object({
   computerId: zod.number(),
   computerName: zod.string(),
   userName: zod.string().nullish(),
-  role: zod.enum(["student", "admin"]).nullish(),
+  role: zod.enum(["student", "teacher", "visitor", "admin"]).nullish(),
   studentName: zod.string(),
   phone: zod.string().nullish(),
   admissionNo: zod.string().nullish(),

@@ -790,12 +790,17 @@ router.post("/agent/checkin", async (req, res): Promise<void> => {
     .set({ checkinRequired: false, status: "online" })
     .where(eq(computersTable.id, computer.id));
 
+  const roleLabel: Record<string, string> = {
+    student: "checked in",
+    teacher: "(teacher) signed in",
+    visitor: "(visitor) signed in",
+    admin: "signed in as administrator",
+  };
+  const verb = roleLabel[role] ?? "checked in";
+  const suffix = role === "student" ? ` (${body.data.admissionNo ?? "—"})` : "";
   await db.insert(eventsTable).values({
-    type: role === "admin" ? "admin_checkin" : "student_checkin",
-    message:
-      role === "admin"
-        ? `${body.data.studentName} signed in as administrator on ${computer.name}`
-        : `${body.data.studentName} checked in on ${computer.name} (${body.data.admissionNo ?? "—"})`,
+    type: role === "admin" ? "admin_checkin" : "checkin",
+    message: `${body.data.studentName} ${verb} on ${computer.name}${suffix}`,
     actor: body.data.studentName,
     computerName: computer.name,
   });
