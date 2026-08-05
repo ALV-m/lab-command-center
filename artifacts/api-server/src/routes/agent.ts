@@ -345,7 +345,7 @@ router.post("/agent/actions/:actionId/complete", async (req, res): Promise<void>
         .limit(1);
 
       if (!pending) {
-        const [allResults] = await db
+        const allResults = await db
           .select({ status: scanResultsTable.status })
           .from(scanResultsTable)
           .where(eq(scanResultsTable.runId, scanMeta.runId));
@@ -362,7 +362,7 @@ router.post("/agent/actions/:actionId/complete", async (req, res): Promise<void>
   await db.insert(eventsTable).values({
     type: "operator_action",
     message: `${action.action.replaceAll("_", " ")} ${body.data.success ? "executed" : "failed"} on ${computer.name}${
-      detail ? ` — ${detail}` : ""
+      detail ? ` â€” ${detail}` : ""
     }`,
     actor: "Agent",
     computerName: computer.name,
@@ -463,7 +463,7 @@ router.post("/agent/events", async (req, res): Promise<void> => {
             title: "USB device awaiting approval",
             detail: `Removable device connected on ${computer.name}${
               driveLetter ? ` (drive ${driveLetter}:)` : ""
-            } — review and approve to allow use.`,
+            } â€” review and approve to allow use.`,
             computerName: computer.name,
             status: "open",
           });
@@ -510,7 +510,7 @@ router.post("/agent/events", async (req, res): Promise<void> => {
         detail: `Account "${target ?? "?"}" ${
           isReset ? "password was reset" : "changed its own password"
         } on ${computer.name}${actor !== "unknown" ? ` by ${actor}` : ""}${
-          who ? ` — user on the PC at the time: ${who}` : ""
+          who ? ` â€” user on the PC at the time: ${who}` : ""
         }`,
         computerName: computer.name,
         status: "open",

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { desc, eq, gte } from "drizzle-orm";
+import { desc, gte } from "drizzle-orm";
 import { db, eventsTable, scanResultsTable, scanRunsTable, studentSessionsTable } from "@workspace/db";
 import {
   AttendanceReportResponse,
