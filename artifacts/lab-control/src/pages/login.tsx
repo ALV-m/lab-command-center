@@ -57,7 +57,7 @@ function LoginPage() {
             <Server className="size-6" />
           </div>
           <div>
-            <h1 className="text-xl font-bold">Lab Command Center</h1>
+            <h1 className="text-xl font-bold">Computer Management System</h1>
             <p className="text-sm text-muted-foreground">
               Computer Lab Manager
             </p>
