@@ -226,6 +226,24 @@ const DDL_STATEMENTS = [
   CREATE INDEX IF NOT EXISTS lab_screenshots_computer_idx
     ON lab_screenshots (computer_id, taken_at);
   `,
+  `
+  CREATE TABLE IF NOT EXISTS app_users (
+    id serial PRIMARY KEY,
+    username text NOT NULL UNIQUE,
+    password_hash text NOT NULL,
+    role text NOT NULL DEFAULT 'admin',
+    submenu_access jsonb NOT NULL DEFAULT '[]',
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS auth_sessions (
+    id text PRIMARY KEY,
+    user_id integer NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS auth_sessions_user_idx
+    ON auth_sessions (user_id);
+  `,
 ];
 
 export async function ensureSchema(): Promise<void> {

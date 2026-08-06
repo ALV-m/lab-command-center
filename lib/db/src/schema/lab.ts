@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   integer,
+  jsonb,
   pgTable,
   serial,
   text,
@@ -170,6 +171,22 @@ export const screenshotsTable = pgTable("lab_screenshots", {
   takenAt: timestamp("taken_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const appUsersTable = pgTable("app_users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default("admin"),
+  submenuAccess: jsonb("submenu_access").notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const authSessionsTable = pgTable("auth_sessions", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
 export const insertComputerSchema = createInsertSchema(computersTable).omit({ id: true });
 export const insertActionSchema = createInsertSchema(actionsTable).omit({ id: true, createdAt: true });
 export const insertAlertSchema = createInsertSchema(alertsTable).omit({ id: true, createdAt: true });
@@ -187,3 +204,5 @@ export type Peripheral = typeof peripheralsTable.$inferSelect;
 export type ScanRun = typeof scanRunsTable.$inferSelect;
 export type ScanResult = typeof scanResultsTable.$inferSelect;
 export type InsertComputer = z.infer<typeof insertComputerSchema>;
+export type AppUser = typeof appUsersTable.$inferSelect;
+export type AuthSession = typeof authSessionsTable.$inferSelect;

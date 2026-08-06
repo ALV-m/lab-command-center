@@ -1,6 +1,7 @@
 export * from "./generated/api";
 export * from "./generated/types";
 export * from "./agent";
+export * from "./auth";
 export * from "./checkins";
 export * from "./peripherals";
 export * from "./reports";

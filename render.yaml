@@ -6,7 +6,8 @@
 # or a hosted Postgres). Set the connection string in the Render dashboard:
 #   Service -> Environment -> DATABASE_URL
 # The app never conflicts with other projects on a shared database because all
-# of its tables use the `lab_` prefix and the seed script skips non-empty
+# of its domain tables use the `lab_` prefix (dashboard auth uses the separate
+# `app_users` / `auth_sessions` tables) and the seed script skips non-empty
 # databases.
 # See https://render.com/docs/blueprint-spec
 services:
@@ -29,4 +30,8 @@ services:
       - key: BASE_PATH
         value: /
       - key: DATABASE_URL
+        sync: false
+      - key: SUPER_ADMIN_USERNAME
+        sync: false
+      - key: SUPER_ADMIN_PASSWORD
         sync: false

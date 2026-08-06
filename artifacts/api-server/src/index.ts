@@ -1,6 +1,7 @@
 import app from "./app";
 import { ensureSchema } from "@workspace/db";
 import { logger } from "./lib/logger";
+import { seedSuperAdmin } from "./lib/auth";
 
 const rawPort = process.env["PORT"];
 
@@ -22,6 +23,8 @@ async function main() {
   } catch (err) {
     logger.warn({ err }, "Could not ensure database schema at startup");
   }
+
+  await seedSuperAdmin();
 
   app.listen(port, (err) => {
     if (err) {

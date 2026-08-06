@@ -4,6 +4,7 @@ A complete management dashboard for a computer lab: track computers, run operato
 
 ## Features
 
+- **Dashboard authentication** — the app opens on a login page; every dashboard page and its API is gated by a server-side session (httpOnly cookie). There are two roles: **Super Admin** (can manage users and has access to every submenu) and **Admin** (regular account with per-submenu access granted by a super admin on the Users page). The first super admin is bootstrapped automatically from the `SUPER_ADMIN_USERNAME`/`SUPER_ADMIN_PASSWORD` environment variables, and its password is re-synced from those variables on every server start.
 - **Dashboard** — live lab summary, status distribution chart, recent alerts.
 - **Computers** — searchable/filterable list with per-machine actions (lock, unlock, restart, wake, send message, remote control, remote view, block/allow USB, push file, delete file, security controls). New machines register automatically when the agent first runs.
 - **Alerts** — acknowledge and resolve alerts raised across the lab.
@@ -69,6 +70,7 @@ lab-command-center/
    - `DATABASE_URL` — PostgreSQL connection string.
    - `PORT` — port for the API (default 3000).
    - `BASE_PATH` — base path for the frontend build (keep `/`).
+   - `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD` — credentials of the dashboard super admin, created (or updated) automatically at startup. `SUPER_ADMIN_PASSWORD` must be at least 6 characters; unset variables simply skip the bootstrap.
 
 3. **Create and seed the schema**
 
@@ -109,6 +111,13 @@ lab-command-center/
 | Method | Path                              | Description                              |
 | ------ | --------------------------------- | ---------------------------------------- |
 | GET    | `/api/healthz`                    | Health check                            |
+| POST   | `/api/auth/login`                 | Log in and set the dashboard session cookie |
+| POST   | `/api/auth/logout`                | End the current dashboard session       |
+| GET    | `/api/auth/me`                    | Current dashboard user + role + submenu access |
+| GET    | `/api/users`                      | List dashboard users (super admin only) |
+| POST   | `/api/users`                      | Create a dashboard user (super admin only) |
+| PATCH  | `/api/users/:userId`              | Update a user's role/password/submenu access (super admin only) |
+| DELETE | `/api/users/:userId`              | Delete a dashboard user (super admin only) |
 | GET    | `/api/agent/download`             | Download `lab-agent.ps1`                |
 | POST   | `/api/agent/register`             | Register/re-key an agent + computer     |
 | POST   | `/api/agent/heartbeat`            | Agent heartbeat; polls for actions      |
@@ -192,7 +201,8 @@ To deploy:
    - If it's another **Render Postgres**, use its **Internal Database URL** and connect that database to this service from the database's dashboard (Render manages the network access automatically).
    - If it's an **external** database (e.g. Neon, Supabase, a VM), use its connection string and add the web service's IP range to the database's allowlist.
 4. First deploy runs `pnpm install && pnpm run db:setup && pnpm run build`, then starts the server. Health check `/api/healthz` marks it live.
-5. Future pushes to `main` auto-deploy.
+5. Set the dashboard super admin credentials (`SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD`, at least 6 characters) in **Environment** too — the account is created on first start. Log in at `/login`, then manage additional users on the **Users** page.
+6. Future pushes to `main` auto-deploy.
 
 Note: the shared database must be reachable from Render — Render-managed databases and standard managed Postgres (Neon/Supabase) work out of the box.
 

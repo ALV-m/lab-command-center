@@ -8,6 +8,7 @@ import {
   FileText,
   FolderUp,
   LayoutDashboard,
+  LogOut,
   Monitor,
   Server,
   ShieldAlert,
@@ -20,6 +21,10 @@ import { Toaster } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
+import { AuthProvider, GuardedRoute, RequireAuth, useAuth } from "@/lib/auth";
+import { hasSubmenuAccess } from "@/lib/submenus";
+import type { SubmenuKey } from "@workspace/api-client-react";
 import Agents from "@/pages/agents";
 import Alerts from "@/pages/alerts";
 import Antivirus from "@/pages/antivirus";
@@ -29,11 +34,13 @@ import Dashboard from "@/pages/dashboard";
 import Events from "@/pages/events";
 import Files from "@/pages/files";
 import Firewall from "@/pages/firewall";
+import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
 import Peripherals from "@/pages/peripherals";
 import Reports from "@/pages/reports";
 import Sessions from "@/pages/sessions";
 import UsbPolicies from "@/pages/usb-policies";
+import UsersPage from "@/pages/users";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -45,41 +52,59 @@ const queryClient = new QueryClient({
   },
 });
 
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof Server;
+  submenu: SubmenuKey;
+  superAdminOnly?: boolean;
+};
+
 const NAV_SECTIONS: Array<{
   label: string | null;
-  items: Array<{ href: string; label: string; icon: typeof Server }>;
+  items: NavItem[];
 }> = [
   {
     label: null,
     items: [
-      { href: "/", label: "Overview", icon: LayoutDashboard },
-      { href: "/computers", label: "Computers", icon: Monitor },
-      { href: "/alerts", label: "Alerts", icon: AlertTriangle },
-      { href: "/usb-policies", label: "USB Policy", icon: ShieldCheck },
-      { href: "/peripherals", label: "Peripherals", icon: Cable },
-      { href: "/files", label: "File Transfer", icon: FolderUp },
-      { href: "/checkins", label: "Check-ins", icon: UserCheck },
-      { href: "/sessions", label: "Sessions", icon: Users },
+      { href: "/", label: "Overview", icon: LayoutDashboard, submenu: "overview" },
+      { href: "/computers", label: "Computers", icon: Monitor, submenu: "computers" },
+      { href: "/alerts", label: "Alerts", icon: AlertTriangle, submenu: "alerts" },
+      { href: "/usb-policies", label: "USB Policy", icon: ShieldCheck, submenu: "usb_policies" },
+      { href: "/peripherals", label: "Peripherals", icon: Cable, submenu: "peripherals" },
+      { href: "/files", label: "File Transfer", icon: FolderUp, submenu: "files" },
+      { href: "/checkins", label: "Check-ins", icon: UserCheck, submenu: "checkins" },
+      { href: "/sessions", label: "Sessions", icon: Users, submenu: "sessions" },
     ],
   },
   {
     label: "Security",
     items: [
-      { href: "/antivirus", label: "Antivirus", icon: ShieldAlert },
-      { href: "/firewall", label: "Firewall", icon: ShieldCheck },
+      { href: "/antivirus", label: "Antivirus", icon: ShieldAlert, submenu: "antivirus" },
+      { href: "/firewall", label: "Firewall", icon: ShieldCheck, submenu: "firewall" },
     ],
   },
   {
     label: null,
     items: [
-      { href: "/reports", label: "Reports", icon: FileText },
-      { href: "/events", label: "Events", icon: Activity },
-      { href: "/agents", label: "Agent", icon: Download },
+      { href: "/reports", label: "Reports", icon: FileText, submenu: "reports" },
+      { href: "/events", label: "Events", icon: Activity, submenu: "events" },
+      { href: "/agents", label: "Agent", icon: Download, submenu: "agent" },
+      { href: "/users", label: "Users", icon: ShieldCheck, submenu: "users", superAdminOnly: true },
     ],
   },
 ];
 
-const NAV_ITEMS = NAV_SECTIONS.flatMap((section) => section.items);
+function visibleItems(): NavItem[] {
+  const items = NAV_SECTIONS.flatMap((section) => section.items);
+  return items;
+}
+
+function canSeeItem(item: NavItem, role: string | null, submenuAccess: SubmenuKey[]): boolean {
+  if (!hasSubmenuAccess(item.submenu, role, submenuAccess)) return false;
+  if (item.superAdminOnly && role !== "super_admin") return false;
+  return true;
+}
 
 function LiveClock() {
   const [now, setNow] = useState(() => new Date());
@@ -104,15 +129,40 @@ function Brand() {
   );
 }
 
+function SignOutButton({ className }: { className?: string }) {
+  const { signOut } = useAuth();
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={className}
+      onClick={() => void signOut()}
+      aria-label="Sign out"
+    >
+      <LogOut className="size-4" />
+      Sign out
+    </Button>
+  );
+}
+
 function Sidebar() {
   const [location] = useLocation();
+  const { user } = useAuth();
+
+  const sections = NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) =>
+      canSeeItem(item, user?.role ?? null, user?.submenuAccess ?? []),
+    ),
+  })).filter((section) => section.items.length > 0);
+
   return (
     <aside className="no-print sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r bg-card md:flex">
       <div className="flex h-16 items-center border-b px-4">
         <Brand />
       </div>
       <nav className="flex-1 space-y-4 overflow-y-auto p-3">
-        {NAV_SECTIONS.map((section, index) => (
+        {sections.map((section, index) => (
           <div key={index} className="space-y-1">
             {section.label ? (
               <p className="px-3 pt-2 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
@@ -140,8 +190,21 @@ function Sidebar() {
           </div>
         ))}
       </nav>
-      <div className="border-t p-4 text-xs text-muted-foreground">
-        <LiveClock />
+      <div className="border-t p-4">
+        {user ? (
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{user.username}</p>
+              <p className="text-xs text-muted-foreground">
+                {user.role === "super_admin" ? "Super Admin" : "Admin"}
+              </p>
+            </div>
+          </div>
+        ) : null}
+        <div className="flex items-center justify-between gap-2">
+          <LiveClock />
+          <SignOutButton className="px-2" />
+        </div>
       </div>
     </aside>
   );
@@ -149,29 +212,37 @@ function Sidebar() {
 
 function MobileNav() {
   const [location] = useLocation();
+  const { user } = useAuth();
+  const items = visibleItems().filter((item) =>
+    canSeeItem(item, user?.role ?? null, user?.submenuAccess ?? []),
+  );
+
   return (
     <div className="no-print sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-background px-4 py-3 md:hidden">
       <Brand />
-      <nav className="flex gap-1">
-        {NAV_ITEMS.map((item) => {
-          const active = location === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-label={item.label}
-              className={cn(
-                "flex size-9 items-center justify-center rounded-md transition-colors",
-                active
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              )}
-            >
-              <item.icon className="size-4" />
-            </Link>
-          );
-        })}
-      </nav>
+      <div className="flex items-center gap-1">
+        <nav className="flex gap-1">
+          {items.map((item) => {
+            const active = location === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-label={item.label}
+                className={cn(
+                  "flex size-9 items-center justify-center rounded-md transition-colors",
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                )}
+              >
+                <item.icon className="size-4" />
+              </Link>
+            );
+          })}
+        </nav>
+        <SignOutButton className="px-2" />
+      </div>
     </div>
   );
 }
@@ -185,19 +256,20 @@ function Layout() {
           <MobileNav />
           <main className="flex-1 p-4 md:p-6 lg:p-8">
             <Switch>
-              <Route path="/" component={Dashboard} />
-              <Route path="/computers" component={Computers} />
-              <Route path="/alerts" component={Alerts} />
-              <Route path="/usb-policies" component={UsbPolicies} />
-              <Route path="/peripherals" component={Peripherals} />
-              <Route path="/files" component={Files} />
-              <Route path="/checkins" component={Checkins} />
-              <Route path="/antivirus" component={Antivirus} />
-              <Route path="/firewall" component={Firewall} />
-              <Route path="/sessions" component={Sessions} />
-              <Route path="/reports" component={Reports} />
-              <Route path="/events" component={Events} />
-              <Route path="/agents" component={Agents} />
+              <GuardedRoute path="/" submenu="overview" component={Dashboard} />
+              <GuardedRoute path="/computers" submenu="computers" component={Computers} />
+              <GuardedRoute path="/alerts" submenu="alerts" component={Alerts} />
+              <GuardedRoute path="/usb-policies" submenu="usb_policies" component={UsbPolicies} />
+              <GuardedRoute path="/peripherals" submenu="peripherals" component={Peripherals} />
+              <GuardedRoute path="/files" submenu="files" component={Files} />
+              <GuardedRoute path="/checkins" submenu="checkins" component={Checkins} />
+              <GuardedRoute path="/antivirus" submenu="antivirus" component={Antivirus} />
+              <GuardedRoute path="/firewall" submenu="firewall" component={Firewall} />
+              <GuardedRoute path="/sessions" submenu="sessions" component={Sessions} />
+              <GuardedRoute path="/reports" submenu="reports" component={Reports} />
+              <GuardedRoute path="/events" submenu="events" component={Events} />
+              <GuardedRoute path="/agents" submenu="agent" component={Agents} />
+              <GuardedRoute path="/users" submenu="users" component={UsersPage} superAdminOnly />
               <Route component={NotFound} />
             </Switch>
           </main>
@@ -211,9 +283,20 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Layout />
-        </WouterRouter>
+        <AuthProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Switch>
+              <Route path="/login" component={LoginPage} />
+              <Route path="*">
+                {() => (
+                  <RequireAuth>
+                    <Layout />
+                  </RequireAuth>
+                )}
+              </Route>
+            </Switch>
+          </WouterRouter>
+        </AuthProvider>
         <Toaster position="top-right" richColors />
       </TooltipProvider>
     </QueryClientProvider>
