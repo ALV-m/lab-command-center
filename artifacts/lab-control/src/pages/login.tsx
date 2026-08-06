@@ -60,7 +60,7 @@ function LoginPage({ slug }: { slug?: string }) {
           <div>
             <h1 className="text-xl font-bold">Computer Management System</h1>
             <p className="text-sm text-muted-foreground">
-              Computer Lab Manager
+              Computer Manager
             </p>
           </div>
         </div>

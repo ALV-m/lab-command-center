@@ -123,7 +123,7 @@ function Brand() {
       </div>
       <div className="leading-tight">
         <p className="text-sm font-bold">Computer Management System</p>
-        <p className="text-[11px] text-muted-foreground">Computer Lab Manager</p>
+        <p className="text-[11px] text-muted-foreground">Computer Manager</p>
       </div>
     </div>
   );

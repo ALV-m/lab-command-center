@@ -38,7 +38,7 @@ function RootLogin() {
           </div>
           <div>
             <h1 className="text-xl font-bold">Computer Management System</h1>
-            <p className="text-sm text-muted-foreground">Computer Lab Manager</p>
+            <p className="text-sm text-muted-foreground">Computer Manager</p>
           </div>
         </div>
 
