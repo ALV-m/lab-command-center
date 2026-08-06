@@ -1,7 +1,7 @@
 import app from "./app";
-import { ensureSchema } from "@workspace/db";
+import { db, ensureAllTenantSchemas, ensureSchema, tenantsTable } from "@workspace/db";
 import { logger } from "./lib/logger";
-import { seedSuperAdmin } from "./lib/auth";
+import { seedPlatformAdmin } from "./lib/auth";
 
 const rawPort = process.env["PORT"];
 
@@ -24,7 +24,15 @@ async function main() {
     logger.warn({ err }, "Could not ensure database schema at startup");
   }
 
-  await seedSuperAdmin();
+  // Re-create missing schemas for existing tenants (e.g. after a restore).
+  try {
+    const tenants = await db.select({ id: tenantsTable.id }).from(tenantsTable);
+    await ensureAllTenantSchemas(tenants.map((tenant) => tenant.id));
+  } catch (err) {
+    logger.warn({ err }, "Could not ensure tenant schemas at startup");
+  }
+
+  await seedPlatformAdmin();
 
   app.listen(port, (err) => {
     if (err) {

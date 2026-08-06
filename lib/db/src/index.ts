@@ -1,4 +1,5 @@
-import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { AsyncLocalStorage } from "node:async_hooks";
 import pg from "pg";
 import * as schema from "./schema";
 
@@ -11,7 +12,48 @@ if (!process.env.DATABASE_URL) {
 }
 
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-export const db = drizzle(pool, { schema });
+
+// ---------------------------------------------------------------------------
+// Tenant-scoped database access
+// ---------------------------------------------------------------------------
+// The whole platform is multi-tenant: each tenant owns a dedicated Postgres
+// schema (e.g. `t7`) holding its own copy of the lab tables. A request is
+// routed into a tenant by `runInTenant()`, and the exported `db` below is a
+// Proxy that transparently talks to the active tenant's schema (or the public
+// schema when no tenant context is active, e.g. for platform/registration
+// code). Existing route handlers keep using `db` unchanged.
+// ---------------------------------------------------------------------------
+
+export interface TenantDbContext {
+  db: NodePgDatabase<typeof schema>;
+  tenantId: number;
+}
+
+export const tenantContext = new AsyncLocalStorage<TenantDbContext>();
+
+export function createTenantDb(
+  client: pg.PoolClient,
+): NodePgDatabase<typeof schema> {
+  return drizzle(client, { schema });
+}
+
+export function runInTenant<T>(
+  ctx: TenantDbContext,
+  fn: () => Promise<T> | T,
+): T {
+  return tenantContext.run(ctx, fn) as T;
+}
+
+const publicDb = drizzle(pool, { schema });
+
+export const db = new Proxy(publicDb, {
+  get(_target, prop) {
+    const ctx = tenantContext.getStore();
+    const base = ctx ? ctx.db : publicDb;
+    const value = (base as unknown as Record<PropertyKey, unknown>)[prop];
+    return typeof value === "function" ? value.bind(base) : value;
+  },
+}) as NodePgDatabase<typeof schema>;
 
 export * from "./schema";
 
@@ -22,9 +64,51 @@ export * from "./schema";
 // `ensureSchema()` is idempotent (CREATE TABLE IF NOT EXISTS) and is used by
 // the deployment scripts and at server startup so a fresh database always has
 // the expected tables.
+//
+// Multi-tenant layout:
+//  * the PUBLIC schema holds only platform tables (`tenants`,
+//    `platform_users`, `auth_sessions_platform`);
+//  * every tenant owns a dedicated Postgres schema (created by
+//    `ensureTenantSchema()`) that mirrors the lab tables below.
 // ---------------------------------------------------------------------------
 
-const DDL_STATEMENTS = [
+const PUBLIC_DDL_STATEMENTS = [
+  `
+  CREATE TABLE IF NOT EXISTS tenants (
+    id serial PRIMARY KEY,
+    name text NOT NULL,
+    slug text NOT NULL UNIQUE,
+    contact_name text NOT NULL,
+    contact_email text,
+    status text NOT NULL DEFAULT 'active',
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS platform_users (
+    id serial PRIMARY KEY,
+    username text NOT NULL UNIQUE,
+    password_hash text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS auth_sessions_platform (
+    id text PRIMARY KEY,
+    user_id integer NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS auth_sessions_platform_user_idx
+    ON auth_sessions_platform (user_id);
+  `,
+];
+
+export function schemaNameFor(tenantId: number): string {
+  return `t${tenantId}`;
+}
+
+const TENANT_DDL_STATEMENTS = [
   `
   CREATE TABLE IF NOT EXISTS lab_computers (
     id serial PRIMARY KEY,
@@ -247,7 +331,32 @@ const DDL_STATEMENTS = [
 ];
 
 export async function ensureSchema(): Promise<void> {
-  for (const statement of DDL_STATEMENTS) {
+  for (const statement of PUBLIC_DDL_STATEMENTS) {
     await pool.query(statement);
   }
+}
+
+export async function ensureTenantSchema(tenantId: number): Promise<void> {
+  const schemaName = schemaNameFor(tenantId);
+  const client = await pool.connect();
+  try {
+    await client.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
+    await client.query(`SET search_path TO "${schemaName}"`);
+    for (const statement of TENANT_DDL_STATEMENTS) {
+      await client.query(statement);
+    }
+  } finally {
+    await client.query("SET search_path TO public").catch(() => {});
+    client.release();
+  }
+}
+
+export async function ensureAllTenantSchemas(tenantIds: number[]): Promise<void> {
+  for (const tenantId of tenantIds) {
+    await ensureTenantSchema(tenantId);
+  }
+}
+
+export async function dropTenantSchema(tenantId: number): Promise<void> {
+  await pool.query(`DROP SCHEMA IF EXISTS "${schemaNameFor(tenantId)}" CASCADE`);
 }

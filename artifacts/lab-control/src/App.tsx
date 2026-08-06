@@ -16,13 +16,14 @@ import {
   UserCheck,
   Users,
 } from "lucide-react";
-import { Route, Router as WouterRouter, Switch, Link, useLocation } from "wouter";
+import { Route, Router as WouterRouter, Switch, Link, useLocation, useParams } from "wouter";
 import { Toaster } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { AuthProvider, GuardedRoute, RequireAuth, useAuth } from "@/lib/auth";
+import { AdminAuthProvider, RequireAdmin } from "@/lib/admin-auth";
 import { hasSubmenuAccess } from "@/lib/submenus";
 import type { SubmenuKey } from "@workspace/api-client-react";
 import Agents from "@/pages/agents";
@@ -37,10 +38,14 @@ import Firewall from "@/pages/firewall";
 import LoginPage from "@/pages/login";
 import NotFound from "@/pages/not-found";
 import Peripherals from "@/pages/peripherals";
+import RegisterPage from "@/pages/register";
 import Reports from "@/pages/reports";
+import RootLogin from "@/pages/root-login";
 import Sessions from "@/pages/sessions";
 import UsbPolicies from "@/pages/usb-policies";
 import UsersPage from "@/pages/users";
+import AdminLoginPage from "@/pages/admin/login";
+import AdminDashboard from "@/pages/admin/dashboard";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -94,11 +99,6 @@ const NAV_SECTIONS: Array<{
     ],
   },
 ];
-
-function visibleItems(): NavItem[] {
-  const items = NAV_SECTIONS.flatMap((section) => section.items);
-  return items;
-}
 
 function canSeeItem(item: NavItem, role: string | null, submenuAccess: SubmenuKey[]): boolean {
   if (!hasSubmenuAccess(item.submenu, role, submenuAccess)) return false;
@@ -213,7 +213,7 @@ function Sidebar() {
 function MobileNav() {
   const [location] = useLocation();
   const { user } = useAuth();
-  const items = visibleItems().filter((item) =>
+  const items = NAV_SECTIONS.flatMap((section) => section.items).filter((item) =>
     canSeeItem(item, user?.role ?? null, user?.submenuAccess ?? []),
   );
 
@@ -279,24 +279,68 @@ function Layout() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Root-level routing: tenant labs under /t/:slug, platform admin under /admin.
+// The `nest` flag makes wouter mount a nested router with the matched prefix as
+// its base, so the tenant dashboard below works exactly as before.
+// ---------------------------------------------------------------------------
+
+function TenantApp() {
+  const params = useParams<{ slug: string }>();
+  const slug = params.slug;
+
+  return (
+    <AuthProvider slug={slug}>
+      <Switch>
+        <Route path="/login">
+          {() => <LoginPage slug={slug} />}
+        </Route>
+        <Route path="*">
+          {() => (
+            <RequireAuth>
+              <Layout />
+            </RequireAuth>
+          )}
+        </Route>
+      </Switch>
+    </AuthProvider>
+  );
+}
+
+function AdminApp() {
+  return (
+    <AdminAuthProvider>
+      <Switch>
+        <Route path="/login" component={AdminLoginPage} />
+        <Route path="*">
+          {() => (
+            <RequireAdmin>
+              <AdminDashboard />
+            </RequireAdmin>
+          )}
+        </Route>
+      </Switch>
+    </AdminAuthProvider>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AuthProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Switch>
-              <Route path="/login" component={LoginPage} />
-              <Route path="*">
-                {() => (
-                  <RequireAuth>
-                    <Layout />
-                  </RequireAuth>
-                )}
-              </Route>
-            </Switch>
-          </WouterRouter>
-        </AuthProvider>
+        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+          <Switch>
+            <Route path="/" component={RootLogin} />
+            <Route path="/register" component={RegisterPage} />
+            <Route path="/admin" nest>
+              <AdminApp />
+            </Route>
+            <Route path="/t/:slug" nest>
+              <TenantApp />
+            </Route>
+            <Route component={NotFound} />
+          </Switch>
+        </WouterRouter>
         <Toaster position="top-right" richColors />
       </TooltipProvider>
     </QueryClientProvider>

@@ -8,5 +8,7 @@ export * from "./usb-devices";
 export * from "./files";
 export * from "./checkins";
 export * from "./auth";
+export * from "./register";
+export * from "./admin";
 export { setBaseUrl, setAuthTokenGetter } from "./custom-fetch";
 export type { AuthTokenGetter } from "./custom-fetch";

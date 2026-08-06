@@ -5,7 +5,7 @@ import pinoHttp from "pino-http";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import router from "./routes";
+import router, { tenantRouter } from "./routes";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
@@ -43,10 +43,16 @@ const frontendDir = fileURLToPath(
 app.use(express.static(frontendDir));
 
 app.use("/api", router);
+app.use("/t/:slug/api", tenantRouter);
 
 // SPA fallback: hand every non-API GET request to the frontend.
 app.use((req, res, next) => {
-  if (req.method !== "GET" || req.path.startsWith("/api")) {
+  if (req.method !== "GET") {
+    next();
+    return;
+  }
+  const pathname = req.path;
+  if (pathname.startsWith("/api") || /^\/t\/[^/]+\/api(\/|$)/.test(pathname)) {
     next();
     return;
   }
@@ -57,7 +63,7 @@ app.use((req, res, next) => {
   } else {
     res.json({
       message:
-        "Lab Command Center API is running. The dashboard has not been built yet.",
+        "Computer Management System API is running. The dashboard has not been built yet.",
     });
   }
 });

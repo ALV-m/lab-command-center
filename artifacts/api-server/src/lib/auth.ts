@@ -1,7 +1,13 @@
 import { and, eq, gt } from "drizzle-orm";
 import type { NextFunction, Request, Response } from "express";
 import { randomBytes } from "node:crypto";
-import { appUsersTable, authSessionsTable, db } from "@workspace/db";
+import {
+  appUsersTable,
+  authSessionsPlatformTable,
+  authSessionsTable,
+  db,
+  platformUsersTable,
+} from "@workspace/db";
 import {
   SUBMENUS,
   type SubmenuKey,
@@ -25,8 +31,14 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthUser;
+      platformAdmin?: PlatformAdminUser;
     }
   }
+}
+
+export interface PlatformAdminUser {
+  id: number;
+  username: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +140,14 @@ const SUBMENU_ROUTES: Array<{ test: (path: string, method: string) => boolean; s
   { test: (p) => p.startsWith("/api/users"), submenu: "users" },
 ];
 
+// The tenant API is mounted under `/t/:slug/api`, so `req.originalUrl` carries
+// the tenant prefix. Strip it so submenu matching works on the plain API path.
+export function apiPath(req: Request): string {
+  const url = req.originalUrl ?? req.url;
+  const stripped = url.replace(/^\/t\/[^/]+\/api/, "");
+  return stripped.split("?")[0];
+}
+
 export function submenusForPath(path: string, method: string): SubmenuGrant[] {
   const normalized = path.split("?")[0];
   return SUBMENU_ROUTES
@@ -168,7 +188,7 @@ export function requireSubmenuAccess(
     return;
   }
 
-  const submenus = submenusForPath(req.originalUrl ?? req.url, req.method);
+  const submenus = submenusForPath(apiPath(req), req.method);
   if (submenus.length === 0) {
     res.status(403).json({ error: "Forbidden" });
     return;
@@ -201,42 +221,112 @@ export function requireSuperAdmin(
 }
 
 // ---------------------------------------------------------------------------
+// Platform admin auth
+// ---------------------------------------------------------------------------
+// The platform owner is the sole operator of the multi-tenant system. They log
+// in through a dedicated endpoint and dashboard, and manage tenants (approval,
+// suspension, deletion, password resets). Sessions live in the public schema.
+
+export const PLATFORM_COOKIE = "lcc_platform_session";
+
+export const platformSessionCookieOptions = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  path: "/",
+  maxAge: SESSION_TTL_MS,
+};
+
+export async function createPlatformSession(
+  userId: number,
+  token: string,
+): Promise<void> {
+  await db.insert(authSessionsPlatformTable).values({
+    id: token,
+    userId,
+    expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+  });
+}
+
+export async function deletePlatformSession(token: string): Promise<void> {
+  await db
+    .delete(authSessionsPlatformTable)
+    .where(eq(authSessionsPlatformTable.id, token));
+}
+
+export async function resolvePlatformSession(
+  req: Request,
+): Promise<PlatformAdminUser | null> {
+  const token = typeof req.cookies?.[PLATFORM_COOKIE] === "string"
+    ? req.cookies[PLATFORM_COOKIE]
+    : "";
+  if (!token) return null;
+
+  const [row] = await db
+    .select()
+    .from(authSessionsPlatformTable)
+    .innerJoin(platformUsersTable, eq(authSessionsPlatformTable.userId, platformUsersTable.id))
+    .where(
+      and(
+        eq(authSessionsPlatformTable.id, token),
+        gt(authSessionsPlatformTable.expiresAt, new Date()),
+      ),
+    )
+    .limit(1);
+
+  if (!row) return null;
+
+  return {
+    id: row.platform_users.id,
+    username: row.platform_users.username,
+  };
+}
+
+export async function requirePlatformAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const admin = await resolvePlatformSession(req);
+  if (!admin) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  req.platformAdmin = admin;
+  next();
+}
+
+// ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
-// Auto-create the first super admin from environment variables on every
-// startup. Re-running with changed credentials re-syncs the password so the
-// account can always be recovered from the environment.
 
-export async function seedSuperAdmin(): Promise<void> {
-  const username = process.env.SUPER_ADMIN_USERNAME?.trim();
-  const password = process.env.SUPER_ADMIN_PASSWORD;
+export async function seedPlatformAdmin(): Promise<void> {
+  const username = process.env.PLATFORM_ADMIN_USERNAME?.trim();
+  const password = process.env.PLATFORM_ADMIN_PASSWORD;
   if (!username || !password) {
     return;
   }
   if (password.length < 6) {
-    logger.warn("SUPER_ADMIN_PASSWORD is too short; super admin not synced");
+    logger.warn("PLATFORM_ADMIN_PASSWORD is too short; platform admin not synced");
     return;
   }
 
   try {
     await db
-      .insert(appUsersTable)
-      .values({
-        username,
-        passwordHash: hashPassword(password),
-        role: "super_admin",
-        submenuAccess: [...SUBMENUS],
-      })
+      .insert(platformUsersTable)
+      .values({ username, passwordHash: hashPassword(password) })
       .onConflictDoUpdate({
-        target: appUsersTable.username,
-        set: {
-          passwordHash: hashPassword(password),
-          role: "super_admin",
-          submenuAccess: [...SUBMENUS],
-        },
+        target: platformUsersTable.username,
+        set: { passwordHash: hashPassword(password) },
       });
-    logger.info({ username }, "Super admin synced from environment");
+    logger.info({ username }, "Platform admin synced from environment");
   } catch (err) {
-    logger.warn({ err }, "Could not sync super admin from environment");
+    logger.warn({ err }, "Could not sync platform admin from environment");
   }
+}
+
+// Legacy alias kept for backwards compatibility with existing deployments
+// that only set SUPER_ADMIN_*; the tenant super admin is provisioned at
+// registration instead.
+export async function seedSuperAdmin(): Promise<void> {
+  await seedPlatformAdmin();
 }

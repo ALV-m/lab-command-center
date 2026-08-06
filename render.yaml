@@ -1,4 +1,4 @@
-# Lab Command Center — Render blueprint
+# Computer Management System — Render blueprint
 # Deploys the Express API + React dashboard.
 #
 # This blueprint deliberately does NOT provision a database. The app connects
@@ -6,13 +6,11 @@
 # or a hosted Postgres). Set the connection string in the Render dashboard:
 #   Service -> Environment -> DATABASE_URL
 # The app never conflicts with other projects on a shared database because all
-# of its domain tables use the `lab_` prefix (dashboard auth uses the separate
-# `app_users` / `auth_sessions` tables) and the seed script skips non-empty
-# databases.
+# tenant data lives in its own Postgres schema (t<id>).
 # See https://render.com/docs/blueprint-spec
 services:
   - type: web
-    name: lab-command-center
+    name: computermanagementsystem
     runtime: node
     plan: free
     rootDir: .
@@ -31,7 +29,7 @@ services:
         value: /
       - key: DATABASE_URL
         sync: false
-      - key: SUPER_ADMIN_USERNAME
+      - key: PLATFORM_ADMIN_USERNAME
         sync: false
-      - key: SUPER_ADMIN_PASSWORD
+      - key: PLATFORM_ADMIN_PASSWORD
         sync: false

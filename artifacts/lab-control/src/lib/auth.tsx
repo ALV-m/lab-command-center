@@ -18,20 +18,20 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ slug, children }: { slug?: string; children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [user, setUser] = useState<UserAccount | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const result = await getMe();
+      const result = await getMe(slug);
       setUser(result.user);
       setStatus("authenticated");
     } catch {
       setUser(null);
       setStatus("unauthenticated");
     }
-  }, []);
+  }, [slug]);
 
   useEffect(() => {
     void refresh();
@@ -39,13 +39,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     try {
-      await logout();
+      await logout(slug);
     } catch {
       // The session may already be invalid; clear local state regardless.
     }
     setUser(null);
     setStatus("unauthenticated");
-  }, []);
+  }, [slug]);
 
   const value = useMemo(
     () => ({ status, user, refresh, signOut }),

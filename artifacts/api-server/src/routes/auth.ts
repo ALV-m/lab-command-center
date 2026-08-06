@@ -80,7 +80,11 @@ router.post("/auth/logout", async (req, res): Promise<void> => {
   res.json(LogoutResponse.parse({ ok: true }));
 });
 
-router.get("/auth/me", requireAuth, async (req, res): Promise<void> => {
+// Everything from here on needs a valid dashboard session. `/users` and
+// `/auth/me` rely on `req.user`, which only `requireAuth` populates.
+router.use(requireAuth);
+
+router.get("/auth/me", async (req, res): Promise<void> => {
   const user = req.user!;
   const [row] = await db
     .select()

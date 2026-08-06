@@ -75,17 +75,20 @@ export interface UpdateUserInput {
   submenuAccess?: SubmenuKey[];
 }
 
+const apiBase = (slug?: string): string => (slug ? `/t/${slug}/api` : "/api");
+
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
 
-export const loginUrl = (): string => "/api/auth/login";
+export const loginUrl = (slug?: string): string => `${apiBase(slug)}/auth/login`;
 
 export const login = async (
   data: BodyType<LoginInput>,
+  slug?: string,
   options?: Parameters<typeof customFetch>[1],
 ): Promise<LoginResult> => {
-  return customFetch<LoginResult>(loginUrl(), {
+  return customFetch<LoginResult>(loginUrl(slug), {
     ...options,
     method: "POST",
     credentials: "include",
@@ -94,45 +97,49 @@ export const login = async (
   });
 };
 
-export const logoutUrl = (): string => "/api/auth/logout";
+export const logoutUrl = (slug?: string): string => `${apiBase(slug)}/auth/logout`;
 
 export const logout = async (
+  slug?: string,
   options?: Parameters<typeof customFetch>[1],
 ): Promise<{ ok: boolean }> => {
-  return customFetch<{ ok: boolean }>(logoutUrl(), {
+  return customFetch<{ ok: boolean }>(logoutUrl(slug), {
     ...options,
     method: "POST",
     credentials: "include",
   });
 };
 
-export const meUrl = (): string => "/api/auth/me";
+export const meUrl = (slug?: string): string => `${apiBase(slug)}/auth/me`;
 
 export const getMe = async (
+  slug?: string,
   options?: Parameters<typeof customFetch>[1],
 ): Promise<AuthMeResult> => {
-  return customFetch<AuthMeResult>(meUrl(), {
+  return customFetch<AuthMeResult>(meUrl(slug), {
     ...options,
     method: "GET",
     credentials: "include",
   });
 };
 
-export const getMeQueryKey = (): readonly string[] => ["/api/auth/me"] as const;
+export const getMeQueryKey = (slug?: string): readonly string[] =>
+  [meUrl(slug)] as const;
 
 export const getMeQueryOptions = <
   TData = Awaited<ReturnType<typeof getMe>>,
   TError = ErrorType<unknown>,
 >(
   options?: {
+    slug?: string;
     query?: UseQueryOptions<Awaited<ReturnType<typeof getMe>>, TError, TData>;
     request?: SecondParameter<typeof customFetch>;
   },
 ): UseQueryOptions<Awaited<ReturnType<typeof getMe>>, TError, TData> & { queryKey: QueryKey } => {
-  const { query: queryOptions, request: requestOptions } = options ?? {};
-  const queryKey = queryOptions?.queryKey ?? getMeQueryKey();
+  const { slug, query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? getMeQueryKey(slug);
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getMe>>> = ({ signal }) =>
-    getMe({ signal, ...requestOptions });
+    getMe(slug, { signal, ...requestOptions });
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getMe>>,
     TError,
@@ -142,6 +149,7 @@ export const getMeQueryOptions = <
 
 export const useGetMe = <TData = Awaited<ReturnType<typeof getMe>>, TError = ErrorType<unknown>>(
   options?: {
+    slug?: string;
     query?: UseQueryOptions<Awaited<ReturnType<typeof getMe>>, TError, TData>;
     request?: SecondParameter<typeof customFetch>;
   },
@@ -149,6 +157,7 @@ export const useGetMe = <TData = Awaited<ReturnType<typeof getMe>>, TError = Err
 
 export const getLoginMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
+    slug?: string;
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof login>>,
       TError,
@@ -164,7 +173,7 @@ export const getLoginMutationOptions = <TError = ErrorType<unknown>, TContext = 
   TContext
 > => {
   const mutationKey = ["login"];
-  const { mutation: mutationOptions, request: requestOptions } = options
+  const { slug, mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
@@ -175,7 +184,7 @@ export const getLoginMutationOptions = <TError = ErrorType<unknown>, TContext = 
     { data: BodyType<LoginInput> }
   > = (props) => {
     const { data } = props ?? {};
-    return login(data, requestOptions);
+    return login(data, slug, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -183,6 +192,7 @@ export const getLoginMutationOptions = <TError = ErrorType<unknown>, TContext = 
 
 export const useLogin = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
+    slug?: string;
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof login>>,
       TError,
@@ -200,6 +210,7 @@ export const useLogin = <TError = ErrorType<unknown>, TContext = unknown>(
 
 export const getLogoutMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
+    slug?: string;
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof logout>>,
       TError,
@@ -210,20 +221,21 @@ export const getLogoutMutationOptions = <TError = ErrorType<unknown>, TContext =
   },
 ): UseMutationOptions<Awaited<ReturnType<typeof logout>>, TError, void, TContext> => {
   const mutationKey = ["logout"];
-  const { mutation: mutationOptions, request: requestOptions } = options
+  const { slug, mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
     : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<Awaited<ReturnType<typeof logout>>, void> = () =>
-    logout(requestOptions);
+    logout(slug, requestOptions);
 
   return { mutationFn, ...mutationOptions };
 };
 
 export const useLogout = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
+    slug?: string;
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof logout>>,
       TError,
@@ -239,29 +251,32 @@ export const useLogout = <TError = ErrorType<unknown>, TContext = unknown>(
 // User management (super admin)
 // ---------------------------------------------------------------------------
 
-export const usersUrl = (): string => "/api/users";
+export const usersUrl = (slug?: string): string => `${apiBase(slug)}/users`;
 
 export const listUsers = async (
+  slug?: string,
   options?: Parameters<typeof customFetch>[1],
 ): Promise<UsersListResult> => {
-  return customFetch<UsersListResult>(usersUrl(), { ...options, method: "GET" });
+  return customFetch<UsersListResult>(usersUrl(slug), { ...options, method: "GET" });
 };
 
-export const listUsersQueryKey = (): readonly string[] => ["/api/users"] as const;
+export const listUsersQueryKey = (slug?: string): readonly string[] =>
+  [usersUrl(slug)] as const;
 
 export const listUsersQueryOptions = <
   TData = Awaited<ReturnType<typeof listUsers>>,
   TError = ErrorType<unknown>,
 >(
   options?: {
+    slug?: string;
     query?: UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData>;
     request?: SecondParameter<typeof customFetch>;
   },
 ): UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData> & { queryKey: QueryKey } => {
-  const { query: queryOptions, request: requestOptions } = options ?? {};
-  const queryKey = queryOptions?.queryKey ?? listUsersQueryKey();
+  const { slug, query: queryOptions, request: requestOptions } = options ?? {};
+  const queryKey = queryOptions?.queryKey ?? listUsersQueryKey(slug);
   const queryFn: QueryFunction<Awaited<ReturnType<typeof listUsers>>> = ({ signal }) =>
-    listUsers({ signal, ...requestOptions });
+    listUsers(slug, { signal, ...requestOptions });
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof listUsers>>,
     TError,
@@ -271,6 +286,7 @@ export const listUsersQueryOptions = <
 
 export const useListUsers = <TData = Awaited<ReturnType<typeof listUsers>>, TError = ErrorType<unknown>>(
   options?: {
+    slug?: string;
     query?: UseQueryOptions<Awaited<ReturnType<typeof listUsers>>, TError, TData>;
     request?: SecondParameter<typeof customFetch>;
   },
@@ -278,9 +294,10 @@ export const useListUsers = <TData = Awaited<ReturnType<typeof listUsers>>, TErr
 
 export const createUser = async (
   data: BodyType<CreateUserInput>,
+  slug?: string,
   options?: Parameters<typeof customFetch>[1],
 ): Promise<UserAccount> => {
-  return customFetch<UserAccount>(usersUrl(), {
+  return customFetch<UserAccount>(usersUrl(slug), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -291,9 +308,10 @@ export const createUser = async (
 export const updateUser = async (
   userId: number,
   data: BodyType<UpdateUserInput>,
+  slug?: string,
   options?: Parameters<typeof customFetch>[1],
 ): Promise<UserAccount> => {
-  return customFetch<UserAccount>(`${usersUrl()}/${userId}`, {
+  return customFetch<UserAccount>(`${usersUrl(slug)}/${userId}`, {
     ...options,
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -303,9 +321,10 @@ export const updateUser = async (
 
 export const deleteUser = async (
   userId: number,
+  slug?: string,
   options?: Parameters<typeof customFetch>[1],
 ): Promise<{ ok: boolean }> => {
-  return customFetch<{ ok: boolean }>(`${usersUrl()}/${userId}`, {
+  return customFetch<{ ok: boolean }>(`${usersUrl(slug)}/${userId}`, {
     ...options,
     method: "DELETE",
   });
@@ -313,6 +332,7 @@ export const deleteUser = async (
 
 export const getCreateUserMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
+    slug?: string;
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof createUser>>,
       TError,
@@ -328,7 +348,7 @@ export const getCreateUserMutationOptions = <TError = ErrorType<unknown>, TConte
   TContext
 > => {
   const mutationKey = ["createUser"];
-  const { mutation: mutationOptions, request: requestOptions } = options
+  const { slug, mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
@@ -339,7 +359,7 @@ export const getCreateUserMutationOptions = <TError = ErrorType<unknown>, TConte
     { data: BodyType<CreateUserInput> }
   > = (props) => {
     const { data } = props ?? {};
-    return createUser(data, requestOptions);
+    return createUser(data, slug, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -347,6 +367,7 @@ export const getCreateUserMutationOptions = <TError = ErrorType<unknown>, TConte
 
 export const useCreateUser = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
+    slug?: string;
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof createUser>>,
       TError,
@@ -364,6 +385,7 @@ export const useCreateUser = <TError = ErrorType<unknown>, TContext = unknown>(
 
 export const getUpdateUserMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
+    slug?: string;
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof updateUser>>,
       TError,
@@ -379,7 +401,7 @@ export const getUpdateUserMutationOptions = <TError = ErrorType<unknown>, TConte
   TContext
 > => {
   const mutationKey = ["updateUser"];
-  const { mutation: mutationOptions, request: requestOptions } = options
+  const { slug, mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
@@ -390,7 +412,7 @@ export const getUpdateUserMutationOptions = <TError = ErrorType<unknown>, TConte
     { userId: number; data: BodyType<UpdateUserInput> }
   > = (props) => {
     const { userId, data } = props ?? {};
-    return updateUser(userId, data, requestOptions);
+    return updateUser(userId, data, slug, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -398,6 +420,7 @@ export const getUpdateUserMutationOptions = <TError = ErrorType<unknown>, TConte
 
 export const useUpdateUser = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
+    slug?: string;
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof updateUser>>,
       TError,
@@ -415,6 +438,7 @@ export const useUpdateUser = <TError = ErrorType<unknown>, TContext = unknown>(
 
 export const getDeleteUserMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
+    slug?: string;
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof deleteUser>>,
       TError,
@@ -430,7 +454,7 @@ export const getDeleteUserMutationOptions = <TError = ErrorType<unknown>, TConte
   TContext
 > => {
   const mutationKey = ["deleteUser"];
-  const { mutation: mutationOptions, request: requestOptions } = options
+  const { slug, mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
       ? options
       : { ...options, mutation: { ...options.mutation, mutationKey } }
@@ -441,7 +465,7 @@ export const getDeleteUserMutationOptions = <TError = ErrorType<unknown>, TConte
     { userId: number }
   > = (props) => {
     const { userId } = props ?? {};
-    return deleteUser(userId, requestOptions);
+    return deleteUser(userId, slug, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
@@ -449,6 +473,7 @@ export const getDeleteUserMutationOptions = <TError = ErrorType<unknown>, TConte
 
 export const useDeleteUser = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
+    slug?: string;
     mutation?: UseMutationOptions<
       Awaited<ReturnType<typeof deleteUser>>,
       TError,

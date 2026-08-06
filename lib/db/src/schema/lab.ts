@@ -187,6 +187,34 @@ export const authSessionsTable = pgTable("auth_sessions", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
 
+// ---------------------------------------------------------------------------
+// Platform tables (live in the public schema, outside any tenant schema)
+// ---------------------------------------------------------------------------
+
+export const tenantsTable = pgTable("tenants", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  contactName: text("contact_name").notNull(),
+  contactEmail: text("contact_email"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const platformUsersTable = pgTable("platform_users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const authSessionsPlatformTable = pgTable("auth_sessions_platform", {
+  id: text("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
 export const insertComputerSchema = createInsertSchema(computersTable).omit({ id: true });
 export const insertActionSchema = createInsertSchema(actionsTable).omit({ id: true, createdAt: true });
 export const insertAlertSchema = createInsertSchema(alertsTable).omit({ id: true, createdAt: true });
@@ -206,3 +234,6 @@ export type ScanResult = typeof scanResultsTable.$inferSelect;
 export type InsertComputer = z.infer<typeof insertComputerSchema>;
 export type AppUser = typeof appUsersTable.$inferSelect;
 export type AuthSession = typeof authSessionsTable.$inferSelect;
+export type Tenant = typeof tenantsTable.$inferSelect;
+export type PlatformUser = typeof platformUsersTable.$inferSelect;
+export type AuthSessionPlatform = typeof authSessionsPlatformTable.$inferSelect;

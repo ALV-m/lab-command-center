@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { Redirect } from "wouter";
-import { useLogin } from "@workspace/api-client-react";
-import { Lock, Server } from "lucide-react";
+import { useAdminLogin } from "@workspace/api-client-react";
+import { Lock, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -16,17 +16,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
-import { useAuth } from "@/lib/auth";
-import { defaultPathFor } from "@/lib/submenus";
+import { useAdminAuth } from "@/lib/admin-auth";
 
-function LoginPage({ slug }: { slug?: string }) {
-  const { status, user, refresh } = useAuth();
-  const loginMutation = useLogin({
-    slug,
+function AdminLoginPage() {
+  const { status, admin, refresh } = useAdminAuth();
+  const loginMutation = useAdminLogin({
     mutation: {
       onSuccess: () => {
         void refresh();
-        toast.success("Signed in");
+        toast.success("Signed in to platform admin");
       },
       onError: (error) => toast.error(error.message),
     },
@@ -35,10 +33,8 @@ function LoginPage({ slug }: { slug?: string }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
-  if (status === "authenticated" && user) {
-    return (
-      <Redirect to={defaultPathFor(user.role, user.submenuAccess)} replace />
-    );
+  if (status === "authenticated" && admin) {
+    return <Redirect to="/" replace />;
   }
 
   const submit = (event: FormEvent) => {
@@ -55,12 +51,12 @@ function LoginPage({ slug }: { slug?: string }) {
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <div className="flex size-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Server className="size-6" />
+            <ShieldCheck className="size-6" />
           </div>
           <div>
-            <h1 className="text-xl font-bold">Computer Management System</h1>
+            <h1 className="text-xl font-bold">Platform Admin</h1>
             <p className="text-sm text-muted-foreground">
-              Computer Lab Manager
+              Computer Management System — owner access
             </p>
           </div>
         </div>
@@ -69,15 +65,15 @@ function LoginPage({ slug }: { slug?: string }) {
           <CardHeader>
             <CardTitle>Sign in</CardTitle>
             <CardDescription>
-              Use your dashboard account to continue.
+              Restricted to platform administrators.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={submit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
+                <Label htmlFor="admin-username">Username</Label>
                 <Input
-                  id="username"
+                  id="admin-username"
                   autoComplete="username"
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
@@ -85,9 +81,9 @@ function LoginPage({ slug }: { slug?: string }) {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="admin-password">Password</Label>
                 <Input
-                  id="password"
+                  id="admin-password"
                   type="password"
                   autoComplete="current-password"
                   value={password}
@@ -110,4 +106,4 @@ function LoginPage({ slug }: { slug?: string }) {
   );
 }
 
-export default LoginPage;
+export default AdminLoginPage;
