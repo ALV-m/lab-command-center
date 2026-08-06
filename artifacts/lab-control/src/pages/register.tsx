@@ -156,7 +156,7 @@ function RegisterPage() {
             </form>
             <p className="mt-4 text-center text-sm text-muted-foreground">
               Already have a lab?{" "}
-              <Link href="/login" className="font-medium text-foreground underline">
+              <Link href="/" className="font-medium text-foreground underline">
                 Go to your sign-in URL
               </Link>
             </p>

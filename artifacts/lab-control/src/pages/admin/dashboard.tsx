@@ -371,7 +371,7 @@ function AdminDashboard() {
                           <span className="flex items-center gap-1 text-xs text-muted-foreground">
                             <LinkIcon className="size-3" />
                             <Link
-                              href={`/t/${tenant.slug}/login`}
+                              href={`~/t/${tenant.slug}/login`}
                               className="underline hover:text-foreground"
                             >
                               t/{tenant.slug}/login
