@@ -8,6 +8,7 @@ export * from "./usb-devices";
 export * from "./files";
 export * from "./checkins";
 export * from "./auth";
+export * from "./login";
 export * from "./register";
 export * from "./admin";
 export { setBaseUrl, setAuthTokenGetter, resolveTenantSlug, tenantApiPrefix } from "./custom-fetch";

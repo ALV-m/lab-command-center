@@ -8,6 +8,7 @@ import checkinsRouter from "./checkins";
 import filesRouter from "./files";
 import healthRouter from "./health";
 import labRouter from "./lab";
+import loginRouter from "./login";
 import peripheralsRouter from "./peripherals";
 import registerRouter from "./register";
 import reportsRouter from "./reports";
@@ -27,6 +28,7 @@ const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(registerRouter);
+router.use(loginRouter);
 router.use(adminRouter);
 
 // ---------------------------------------------------------------------------

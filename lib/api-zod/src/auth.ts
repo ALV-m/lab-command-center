@@ -51,6 +51,27 @@ export const LogoutResponse = zod.object({
   ok: zod.boolean(),
 });
 
+// Result of the platform-wide login at `POST /api/login`. The same page signs
+// in both the platform admin and lab accounts, so the response discriminates
+// on `type` so the client can route to `/admin` or `/t/:slug` respectively.
+export const DiscoverLoginResponse = zod.discriminatedUnion("type", [
+  zod.object({
+    type: zod.literal("platform"),
+    user: zod.object({
+      id: zod.number(),
+      username: zod.string(),
+      createdAt: zod.string(),
+    }),
+  }),
+  zod.object({
+    type: zod.literal("tenant"),
+    tenantSlug: zod.string(),
+    tenantName: zod.string(),
+    user: UserAccount,
+  }),
+]);
+export type DiscoverLoginResponse = zod.infer<typeof DiscoverLoginResponse>;
+
 export const UserCreateBody = zod.object({
   username: zod.string().trim().min(1).max(100),
   password: zod.string().min(6).max(200),
