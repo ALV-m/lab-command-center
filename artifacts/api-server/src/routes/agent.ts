@@ -284,11 +284,14 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
       .limit(1);
     return row?.value ?? null;
   };
-  const [signinSetting, sharedUserSetting, sharedPassSetting] = await Promise.all([
-    settingValue("signin_method"),
-    settingValue("shared_account_user"),
-    settingValue("shared_account_password"),
-  ]);
+  const [signinSetting, sharedUserSetting, sharedPassSetting, adminWindowsUserSetting, blockDownloadsSetting] =
+    await Promise.all([
+      settingValue("signin_method"),
+      settingValue("shared_account_user"),
+      settingValue("shared_account_password"),
+      settingValue("admin_windows_user"),
+      settingValue("block_downloads"),
+    ]);
   const signinMethod =
     signinSetting === "shared_account"
       ? ("shared_account" as const)
@@ -333,6 +336,8 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
         sharedAccountUser: signinMethod === "shared_account" ? autoShared?.user ?? sharedUserSetting : null,
         sharedAccountPassword:
           signinMethod === "shared_account" ? autoShared?.password ?? sharedPassSetting : null,
+        adminWindowsUser: adminWindowsUserSetting,
+        blockDownloads: blockDownloadsSetting === "true",
       },
       allowedUsb,
       allowedDeviceIds,
@@ -748,25 +753,50 @@ router.post("/agent/checkin", async (req, res): Promise<void> => {
   const role = body.data.role ?? "student";
 
   if (role === "admin") {
-    const [secretRow] = await db
+    const [adminUserRow] = await db
       .select({ value: settingsTable.value })
       .from(settingsTable)
-      .where(eq(settingsTable.key, "admin_gate_secret"))
+      .where(eq(settingsTable.key, "admin_windows_user"))
       .limit(1);
-    const expected = secretRow?.value ?? "";
-    if (!expected) {
-      res.json(AgentCheckinResponse.parse({ ok: false, error: "No administrator passphrase is configured" }));
-      return;
-    }
-    const supplied = body.data.adminPass ?? "";
-    const suppliedUser = (body.data.adminUser ?? "").trim();
-    if (!supplied || supplied !== expected) {
-      res.json(AgentCheckinResponse.parse({ ok: false, error: "Invalid administrator passphrase" }));
-      return;
-    }
-    if (!suppliedUser) {
-      res.json(AgentCheckinResponse.parse({ ok: false, error: "Enter your administrator username" }));
-      return;
+    const adminWindowsUser = adminUserRow?.value?.trim() ?? "";
+    const suppliedName = (body.data.studentName ?? "").trim();
+    if (adminWindowsUser) {
+      // The agent reports the account that is actually signed in on the PC.
+      // Accept it when it matches the configured Windows administrator
+      // account (with or without the DOMAIN\ prefix).
+      const matches =
+        suppliedName.toLowerCase() === adminWindowsUser.toLowerCase() ||
+        suppliedName.toLowerCase().endsWith(`\\${adminWindowsUser.toLowerCase()}`);
+      if (!matches || !suppliedName) {
+        res.json(
+          AgentCheckinResponse.parse({
+            ok: false,
+            error: "This account is not the configured Windows administrator",
+          }),
+        );
+        return;
+      }
+    } else {
+      const [secretRow] = await db
+        .select({ value: settingsTable.value })
+        .from(settingsTable)
+        .where(eq(settingsTable.key, "admin_gate_secret"))
+        .limit(1);
+      const expected = secretRow?.value ?? "";
+      if (!expected) {
+        res.json(AgentCheckinResponse.parse({ ok: false, error: "No administrator is configured for sign-in" }));
+        return;
+      }
+      const supplied = body.data.adminPass ?? "";
+      const suppliedUser = (body.data.adminUser ?? "").trim();
+      if (!supplied || supplied !== expected) {
+        res.json(AgentCheckinResponse.parse({ ok: false, error: "Invalid administrator passphrase" }));
+        return;
+      }
+      if (!suppliedUser) {
+        res.json(AgentCheckinResponse.parse({ ok: false, error: "Enter your administrator username" }));
+        return;
+      }
     }
   }
 
@@ -780,6 +810,9 @@ router.post("/agent/checkin", async (req, res): Promise<void> => {
       studentName: body.data.studentName,
       phone: body.data.phone ?? null,
       admissionNo: body.data.admissionNo ?? null,
+      course: body.data.course ?? null,
+      className: body.data.class ?? null,
+      reason: body.data.reason ?? null,
       email: body.data.email ?? null,
       photoFileId: body.data.photoFileId ?? null,
     })

@@ -71,6 +71,8 @@ export const AgentHeartbeatResponse = zod.object({
     signinMethod: zod.enum(["password", "shared_account"]).nullish(),
     sharedAccountUser: zod.string().max(64).nullish(),
     sharedAccountPassword: zod.string().max(128).nullish(),
+    adminWindowsUser: zod.string().max(100).nullish(),
+    blockDownloads: zod.boolean().nullish(),
   }),
   allowedUsb: zod.array(zod.string()),
   allowedDeviceIds: zod.array(zod.string()).default([]),
@@ -114,18 +116,36 @@ export const AgentEventResponse = zod.object({
 
 export const AgentCheckinRole = zod.enum(["student", "teacher", "visitor", "admin"]);
 
-export const AgentCheckinBody = zod.object({
-  token: zod.string().min(1),
-  userName: zod.string().max(200).nullish(),
-  role: AgentCheckinRole.nullish(),
-  studentName: zod.string().min(1).max(200),
-  phone: zod.string().max(50).nullish(),
-  admissionNo: zod.string().max(100).nullish(),
-  email: zod.string().max(200).nullish(),
-  photoFileId: zod.string().max(200).nullish(),
-  adminUser: zod.string().max(100).nullish(),
-  adminPass: zod.string().max(128).nullish(),
-});
+export const AgentCheckinBody = zod
+  .object({
+    token: zod.string().min(1),
+    userName: zod.string().max(200).nullish(),
+    role: AgentCheckinRole.nullish(),
+    studentName: zod.string().min(1).max(200),
+    phone: zod.string().max(50).nullish(),
+    admissionNo: zod.string().max(100).nullish(),
+    course: zod.string().max(200).nullish(),
+    class: zod.string().max(100).nullish(),
+    reason: zod.string().max(500).nullish(),
+    email: zod.string().max(200).nullish(),
+    photoFileId: zod.string().max(200).nullish(),
+    adminUser: zod.string().max(100).nullish(),
+    adminPass: zod.string().max(128).nullish(),
+  })
+  .superRefine((value, ctx) => {
+    const role = value.role ?? "student";
+    const text = (input: string | null | undefined) => input?.trim() ?? "";
+    if (role === "student") {
+      if (!text(value.course)) ctx.addIssue({ code: "custom", path: ["course"], message: "Course is required for students" });
+      if (!text(value.class)) ctx.addIssue({ code: "custom", path: ["class"], message: "Class is required for students" });
+      if (!text(value.reason)) ctx.addIssue({ code: "custom", path: ["reason"], message: "Reason for use is required" });
+    } else if (role === "teacher") {
+      if (!text(value.admissionNo)) ctx.addIssue({ code: "custom", path: ["admissionNo"], message: "Staff / employee ID is required for teachers" });
+      if (!text(value.reason)) ctx.addIssue({ code: "custom", path: ["reason"], message: "Reason for use is required" });
+    } else if (role === "visitor") {
+      if (!text(value.reason)) ctx.addIssue({ code: "custom", path: ["reason"], message: "Reason for use is required" });
+    }
+  });
 
 export const AgentCheckinResponse = zod.object({
   ok: zod.boolean(),

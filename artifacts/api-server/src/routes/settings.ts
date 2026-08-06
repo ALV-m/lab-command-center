@@ -14,6 +14,8 @@ const SIGNIN_KEY = "signin_method";
 const SHARED_USER_KEY = "shared_account_user";
 const SHARED_PASS_KEY = "shared_account_password";
 const ADMIN_SECRET_KEY = "admin_gate_secret";
+const ADMIN_WINDOWS_USER_KEY = "admin_windows_user";
+const BLOCK_DOWNLOADS_KEY = "block_downloads";
 
 async function readSetting(key: string): Promise<string | null> {
   const [row] = await db
@@ -22,6 +24,12 @@ async function readSetting(key: string): Promise<string | null> {
     .where(eq(settingsTable.key, key))
     .limit(1);
   return row?.value ?? null;
+}
+
+async function readBoolean(key: string): Promise<boolean | null> {
+  const raw = await readSetting(key);
+  if (!raw) return null;
+  return raw === "true";
 }
 
 async function writeSetting(key: string, value: string | null): Promise<void> {
@@ -55,6 +63,8 @@ router.get("/lab/settings", async (_req, res): Promise<void> => {
       sharedAccountUser: await readSetting(SHARED_USER_KEY),
       sharedAccountPassword: await readSetting(SHARED_PASS_KEY),
       adminGateSecret: await readSetting(ADMIN_SECRET_KEY),
+      adminWindowsUser: await readSetting(ADMIN_WINDOWS_USER_KEY),
+      blockDownloads: await readBoolean(BLOCK_DOWNLOADS_KEY),
     }),
   );
 });
@@ -77,6 +87,8 @@ router.patch("/lab/settings", async (req, res): Promise<void> => {
     await writeSetting(SHARED_PASS_KEY, null);
   }
   await writeSetting(ADMIN_SECRET_KEY, body.data.adminGateSecret ?? null);
+  await writeSetting(ADMIN_WINDOWS_USER_KEY, body.data.adminWindowsUser ?? null);
+  await writeSetting(BLOCK_DOWNLOADS_KEY, body.data.blockDownloads == null ? null : String(body.data.blockDownloads));
   res.json(
     UpdateLabSettingsResponse.parse({
       idleLogoutMinutes: await idleLogoutMinutes(),
@@ -84,6 +96,8 @@ router.patch("/lab/settings", async (req, res): Promise<void> => {
       sharedAccountUser: await readSetting(SHARED_USER_KEY),
       sharedAccountPassword: await readSetting(SHARED_PASS_KEY),
       adminGateSecret: await readSetting(ADMIN_SECRET_KEY),
+      adminWindowsUser: await readSetting(ADMIN_WINDOWS_USER_KEY),
+      blockDownloads: await readBoolean(BLOCK_DOWNLOADS_KEY),
     }),
   );
 });

@@ -70,6 +70,9 @@ function Checkins() {
                   <TableHead>Role</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Admission / ID</TableHead>
+                  <TableHead>Course</TableHead>
+                  <TableHead>Class</TableHead>
+                  <TableHead>Reason</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Computer</TableHead>
                   <TableHead>Signed in</TableHead>
@@ -105,6 +108,9 @@ function Checkins() {
                     </TableCell>
                     <TableCell className="tabular-nums">{checkin.phone || "—"}</TableCell>
                     <TableCell className="font-mono text-xs">{checkin.admissionNo || "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">{checkin.course || "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">{checkin.class || "—"}</TableCell>
+                    <TableCell className="max-w-[220px] text-muted-foreground">{checkin.reason || "—"}</TableCell>
                     <TableCell className="text-muted-foreground">{checkin.email || "—"}</TableCell>
                     <TableCell>
                       <span className="flex items-center gap-2">

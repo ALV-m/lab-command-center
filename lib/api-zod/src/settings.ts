@@ -8,6 +8,8 @@ export const GetLabSettingsResponse = zod.object({
   sharedAccountUser: zod.string().max(64).nullish(),
   sharedAccountPassword: zod.string().max(128).nullish(),
   adminGateSecret: zod.string().max(128).nullish(),
+  adminWindowsUser: zod.string().max(100).nullish(),
+  blockDownloads: zod.boolean().nullish(),
 });
 
 export const UpdateLabSettingsBody = zod.object({
@@ -16,6 +18,8 @@ export const UpdateLabSettingsBody = zod.object({
   sharedAccountUser: zod.string().max(64).nullish(),
   sharedAccountPassword: zod.string().max(128).nullish(),
   adminGateSecret: zod.string().max(128).nullish(),
+  adminWindowsUser: zod.string().max(100).nullish(),
+  blockDownloads: zod.boolean().nullish(),
 });
 
 export const UpdateLabSettingsResponse = GetLabSettingsResponse;

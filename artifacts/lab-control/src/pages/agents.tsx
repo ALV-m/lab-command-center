@@ -5,13 +5,14 @@ import {
   useGetLabSettings,
   useUpdateLabSettings,
 } from "@workspace/api-client-react";
-import { Copy, Download, ExternalLink, KeyRound, Play, Save, Terminal, Timer, UserRound } from "lucide-react";
+import { Copy, Download, ExternalLink, KeyRound, Play, Save, Terminal, Timer, UserCog, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -57,7 +58,8 @@ function Agents() {
   const [signinMethod, setSigninMethod] = useState<"password" | "shared_account" | "">("");
   const [sharedUser, setSharedUser] = useState("");
   const [sharedPass, setSharedPass] = useState("");
-  const [adminSecret, setAdminSecret] = useState("");
+  const [adminWindowsUser, setAdminWindowsUser] = useState("");
+  const [blockDownloads, setBlockDownloads] = useState(false);
   const [formInitialized, setFormInitialized] = useState(false);
 
   useEffect(() => {
@@ -65,7 +67,8 @@ function Agents() {
       setSigninMethod(settings.signinMethod ?? "password");
       setSharedUser(settings.sharedAccountUser ?? "");
       setSharedPass(settings.sharedAccountPassword ?? "");
-      setAdminSecret(settings.adminGateSecret ?? "");
+      setAdminWindowsUser(settings.adminWindowsUser ?? "");
+      setBlockDownloads(settings.blockDownloads === true);
       setFormInitialized(true);
     }
   }, [settings, formInitialized]);
@@ -88,7 +91,9 @@ function Agents() {
       signinMethod: method,
       sharedAccountUser: isShared ? (sharedUser || settings?.sharedAccountUser || null) : null,
       sharedAccountPassword: isShared ? (sharedPass || settings?.sharedAccountPassword || null) : null,
-      adminGateSecret: adminSecret || settings?.adminGateSecret || null,
+      adminGateSecret: null,
+      adminWindowsUser: adminWindowsUser || settings?.adminWindowsUser || null,
+      blockDownloads,
     };
   };
 
@@ -304,28 +309,47 @@ function Agents() {
 
           <div className="grid gap-3 rounded-md border p-3">
             <div className="grid gap-1.5">
-              <label htmlFor="admin-secret" className="text-sm font-medium">
-                Administrator passphrase (login form)
+              <label htmlFor="admin-windows-user" className="text-sm font-medium">
+                Windows administrator account name
               </label>
               <div className="relative">
-                <KeyRound className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <UserCog className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  id="admin-secret"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="Set a secret administrators enter on the PC"
-                  value={adminSecret}
-                  onChange={(event) => setAdminSecret(event.target.value)}
+                  id="admin-windows-user"
+                  type="text"
+                  autoComplete="off"
+                  placeholder="e.g. Administrator"
+                  value={adminWindowsUser}
+                  onChange={(event) => setAdminWindowsUser(event.target.value)}
                   className="pl-8"
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                The login form has user-type buttons — Student, Teacher, Visitor, Administrator.
-                Students, teachers, and visitors enter their own details to sign in. Anyone entering
-                this passphrase under Administrator signs in as an administrator (recorded in the
-                Check-ins log and the dashboard opens). Leave empty to disable administrator
-                sign-in on the PCs.
+                Each PC has two accounts: a shared local account (no administrative rights) used by
+                students, teachers, and visitors, and this Windows administrator account. The login
+                form has buttons for Student, Teacher, Visitor, and Administrator. Picking
+                Administrator locks the PC and shows the Windows sign-in screen, where you log into
+                this account. Files a user saves in the shared account stay there until someone
+                deletes them. The agent records administrator sign-ins in the Check-ins log and never
+                shows the form to this account.
               </p>
+            </div>
+            <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+              <div className="space-y-1">
+                <label htmlFor="block-downloads" className="text-sm font-medium">
+                  Block downloads and installs
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  When enabled, browsers on the shared account cannot save downloads and files
+                  downloaded to Downloads/Desktop/TEMP cannot be run — so nothing can be installed
+                  without your approval. Administrators are not affected.
+                </p>
+              </div>
+              <Switch
+                id="block-downloads"
+                checked={blockDownloads}
+                onCheckedChange={setBlockDownloads}
+              />
             </div>
           </div>
 
@@ -337,9 +361,12 @@ function Agents() {
             {signinMethod === "shared_account"
               ? `Auto-login account "${sharedUser || settings?.sharedAccountUser || "auto-generated"}": PCs boot to the login form instead of the Windows password page.`
               : "Each student signs into their own Windows account, then completes the login form."}
-            {adminSecret || settings?.adminGateSecret
-              ? " Administrator sign-in via the login form is enabled."
-              : " No administrator passphrase set — Administrator sign-in on the PCs is disabled."}
+            {adminWindowsUser || settings?.adminWindowsUser
+              ? ` Administrator account "${adminWindowsUser || settings?.adminWindowsUser}" is recognized on the PCs.`
+              : " No administrator account set — add it so the form can hand off to Windows sign-in."}
+            {blockDownloads
+              ? " Downloads and installs are blocked on the shared account."
+              : " Downloads and installs are allowed."}
           </p>
         </CardContent>
       </Card>

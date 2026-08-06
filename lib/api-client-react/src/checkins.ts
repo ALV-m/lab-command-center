@@ -26,6 +26,9 @@ export interface CheckinEntry {
   studentName: string;
   phone?: string | null;
   admissionNo?: string | null;
+  course?: string | null;
+  class?: string | null;
+  reason?: string | null;
   email?: string | null;
   photoFileId?: string | null;
   submittedAt: string;

@@ -629,7 +629,6 @@ function New-Heading {
 }
 
 function New-Textbox {
-  param([string]$Placeholder, [bool]$Required = $true)
   $box = New-Object System.Windows.Forms.TextBox
   $box.Font = New-Object System.Drawing.Font('Segoe UI', 14)
   $box.Width = 380
@@ -674,6 +673,12 @@ $phoneHeading = New-Heading -Text 'Phone number *' -Color ([System.Drawing.Color
 $phoneBox = New-Textbox
 $idHeading = New-Heading -Text 'Admission / ID number *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
 $idBox = New-Textbox
+$courseHeading = New-Heading -Text 'Course *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
+$courseBox = New-Textbox
+$classHeading = New-Heading -Text 'Class *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
+$classBox = New-Textbox
+$reasonHeading = New-Heading -Text 'Reason for using this computer *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
+$reasonBox = New-Textbox
 $emailHeading = New-Heading -Text 'Email (optional)' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
 $emailBox = New-Textbox
 
@@ -683,6 +688,12 @@ $flow.Controls.Add($phoneHeading)
 $flow.Controls.Add($phoneBox)
 $flow.Controls.Add($idHeading)
 $flow.Controls.Add($idBox)
+$flow.Controls.Add($courseHeading)
+$flow.Controls.Add($courseBox)
+$flow.Controls.Add($classHeading)
+$flow.Controls.Add($classBox)
+$flow.Controls.Add($reasonHeading)
+$flow.Controls.Add($reasonBox)
 $flow.Controls.Add($emailHeading)
 $flow.Controls.Add($emailBox)
 
@@ -725,26 +736,34 @@ $photoRow.Controls.Add($photoButton)
 $photoRow.Controls.Add($photoBox)
 $flow.Controls.Add($photoRow)
 
-$adminUserHeading = New-Heading -Text 'Administrator username *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
-$adminUserBox = New-Object System.Windows.Forms.TextBox
-$adminUserBox.Font = New-Object System.Drawing.Font('Segoe UI', 14)
-$adminUserBox.Width = 380
-$adminUserBox.Margin = New-Object System.Windows.Forms.Padding(0, 4, 0, 4)
+$adminRow = New-Object System.Windows.Forms.FlowLayoutPanel
+$adminRow.FlowDirection = [System.Windows.Forms.FlowDirection]::TopDown
+$adminRow.AutoSize = $true
+$adminRow.Margin = New-Object System.Windows.Forms.Padding(0, 10, 0, 0)
 
-$adminPassHeading = New-Heading -Text 'Passphrase *' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 12
-$adminPassBox = New-Object System.Windows.Forms.TextBox
-$adminPassBox.Font = New-Object System.Drawing.Font('Segoe UI', 14)
-$adminPassBox.Width = 380
-$adminPassBox.Margin = New-Object System.Windows.Forms.Padding(0, 4, 0, 4)
-$adminPassBox.UseSystemPasswordChar = $true
+$adminHeading = New-Heading -Text 'Administrator sign-in' -Color ([System.Drawing.Color]::FromArgb(60, 60, 70)) -Size 16
+$adminNote = New-Heading -Text 'The administrator uses their own Windows account on this PC. Clicking below locks the screen and shows the Windows sign-in, where the administrator logs into that account. It is not the shared account students, teachers, and visitors use.' -Color ([System.Drawing.Color]::FromArgb(120, 120, 130)) -Size 11
 
-$adminNote = New-Heading -Text 'Signing in as administrator records the sign-in in the check-in log and opens the lab dashboard for managing computers.' -Color ([System.Drawing.Color]::FromArgb(120, 120, 130)) -Size 11
+$adminLockButton = New-Object System.Windows.Forms.Button
+$adminLockButton.Text = 'Sign in as administrator'
+$adminLockButton.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
+$adminLockButton.BackColor = [System.Drawing.Color]::FromArgb(120, 50, 160)
+$adminLockButton.ForeColor = [System.Drawing.Color]::White
+$adminLockButton.Width = 280
+$adminLockButton.Height = 46
+$adminLockButton.Margin = New-Object System.Windows.Forms.Padding(0, 10, 0, 0)
+$adminLockButton.Add_Click({
+  try {
+    Start-Process -FilePath 'rundll32.exe' -ArgumentList 'user32.dll,LockWorkStation' -WindowStyle Hidden -ErrorAction SilentlyContinue
+  } catch {}
+  $script:submitted = $true
+  $form.Close()
+})
 
-$flow.Controls.Add($adminUserHeading)
-$flow.Controls.Add($adminUserBox)
-$flow.Controls.Add($adminPassHeading)
-$flow.Controls.Add($adminPassBox)
-$flow.Controls.Add($adminNote)
+$adminRow.Controls.Add($adminHeading)
+$adminRow.Controls.Add($adminNote)
+$adminRow.Controls.Add($adminLockButton)
+$flow.Controls.Add($adminRow)
 
 $status = New-Object System.Windows.Forms.Label
 $status.ForeColor = [System.Drawing.Color]::FromArgb(200, 30, 30)
@@ -757,20 +776,25 @@ function Select-Role {
   param([string]$Role)
   $script:role = $Role
   $isAdmin = ($Role -eq 'admin')
-  $nameHeading.Visible = -not $isAdmin
-  $nameBox.Visible = -not $isAdmin
-  $phoneHeading.Visible = -not $isAdmin
-  $phoneBox.Visible = -not $isAdmin
-  $idHeading.Visible = -not $isAdmin
-  $idBox.Visible = -not $isAdmin
-  $emailHeading.Visible = -not $isAdmin
-  $emailBox.Visible = -not $isAdmin
-  $photoRow.Visible = -not $isAdmin
-  $adminUserHeading.Visible = $isAdmin
-  $adminUserBox.Visible = $isAdmin
-  $adminPassHeading.Visible = $isAdmin
-  $adminPassBox.Visible = $isAdmin
-  $adminNote.Visible = $isAdmin
+  $isStudent = ($Role -eq 'student')
+  $isPerson = -not $isAdmin
+  $nameHeading.Visible = $isPerson
+  $nameBox.Visible = $isPerson
+  $phoneHeading.Visible = $isPerson
+  $phoneBox.Visible = $isPerson
+  $idHeading.Visible = $isPerson
+  $idBox.Visible = $isPerson
+  $courseHeading.Visible = $isStudent
+  $courseBox.Visible = $isStudent
+  $classHeading.Visible = $isStudent
+  $classBox.Visible = $isStudent
+  $reasonHeading.Visible = $isPerson
+  $reasonBox.Visible = $isPerson
+  $emailHeading.Visible = $isPerson
+  $emailBox.Visible = $isPerson
+  $photoRow.Visible = $isPerson
+  $adminRow.Visible = $isAdmin
+  $submit.Visible = $isPerson
   $selected = [System.Drawing.Color]::FromArgb(24, 108, 220)
   $idle = [System.Drawing.Color]::FromArgb(228, 231, 236)
   foreach ($b in @($btnStudent, $btnTeacher, $btnVisitor, $btnAdmin)) {
@@ -804,8 +828,6 @@ $btnTeacher.Add_Click({ Select-Role 'teacher' })
 $btnVisitor.Add_Click({ Select-Role 'visitor' })
 $btnAdmin.Add_Click({ Select-Role 'admin' })
 
-Select-Role 'student'
-
 $submit = New-Object System.Windows.Forms.Button
 $submit.Text = 'Sign in'
 $submit.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
@@ -815,81 +837,60 @@ $submit.Width = 200
 $submit.Height = 46
 $submit.Margin = New-Object System.Windows.Forms.Padding(0, 14, 0, 0)
 $submit.Add_Click({
-  if ($script:role -eq 'admin') {
-    $adminUser = $adminUserBox.Text.Trim()
-    $adminPass = $adminPassBox.Text
-    if (-not $adminUser -or -not $adminPass) {
-      $status.Text = 'Enter your administrator username and passphrase.'
-      return
+  $name = $nameBox.Text.Trim()
+  $phone = $phoneBox.Text.Trim()
+  $id = $idBox.Text.Trim()
+  $reason = $reasonBox.Text.Trim()
+  if (-not $name -or -not $phone) {
+    $status.Text = 'Please fill in your name and phone number.'
+    return
+  }
+  if ($script:idRequired -and -not $id) {
+    $status.Text = 'Please fill in your ID number.'
+    return
+  }
+  if ($script:role -eq 'student') {
+    if (-not $courseBox.Text.Trim()) { $status.Text = 'Please fill in your course.'; return }
+    if (-not $classBox.Text.Trim()) { $status.Text = 'Please fill in your class.'; return }
+  }
+  if (-not $reason) {
+    $status.Text = 'Please enter the reason you are using this computer.'
+    return
+  }
+  $submit.Enabled = $false
+  $status.Text = 'Submitting…'
+  try {
+    $token = Read-Token
+    $body = @{
+      token = $token
+      userName = $UserName
+      role = $script:role
+      studentName = $name
+      phone = $phone
+      admissionNo = $id
+      course = $courseBox.Text.Trim()
+      class = $classBox.Text.Trim()
+      reason = $reason
+      email = ($emailBox.Text.Trim() -replace '\s+', ' ')
+      photoFileId = $script:photoFileId
     }
-    $submit.Enabled = $false
-    $status.Text = 'Signing in…'
-    try {
-      $token = Read-Token
-      $body = @{
-        token = $token
-        userName = $UserName
-        role = 'admin'
-        studentName = $adminUser
-        adminUser = $adminUser
-        adminPass = $adminPass
-      }
-      $json = $body | ConvertTo-Json -Compress -Depth 4
-      $resp = Invoke-RestMethod -Uri ('{0}/api/agent/checkin' -f $ServerUrl) -Method Post -ContentType 'application/json' -Body $json -TimeoutSec 60
-      if ($resp.ok) {
-        $script:submitted = $true
-        $form.Close()
-        Start-Process ('{0}/' -f $ServerUrl) -ErrorAction SilentlyContinue
-      } else {
-        $status.Text = [string]$resp.error
-        $submit.Enabled = $true
-      }
-    } catch {
-      $status.Text = 'Could not reach the server. Try again in a moment.'
+    $json = $body | ConvertTo-Json -Compress -Depth 4
+    $resp = Invoke-RestMethod -Uri ('{0}/api/agent/checkin' -f $ServerUrl) -Method Post -ContentType 'application/json' -Body $json -TimeoutSec 60
+    if ($resp.ok) {
+      $script:submitted = $true
+      $form.Close()
+    } else {
+      $status.Text = [string]$resp.error
       $submit.Enabled = $true
     }
-  } else {
-    $name = $nameBox.Text.Trim()
-    $phone = $phoneBox.Text.Trim()
-    $id = $idBox.Text.Trim()
-    if (-not $name -or -not $phone) {
-      $status.Text = 'Please fill in your name and phone number.'
-      return
-    }
-    if ($script:idRequired -and -not $id) {
-      $status.Text = 'Please fill in your ID number.'
-      return
-    }
-    $submit.Enabled = $false
-    $status.Text = 'Submitting…'
-    try {
-      $token = Read-Token
-      $body = @{
-        token = $token
-        userName = $UserName
-        role = $script:role
-        studentName = $name
-        phone = $phone
-        admissionNo = $id
-        email = ($emailBox.Text.Trim() -replace '\s+', ' ')
-        photoFileId = $script:photoFileId
-      }
-      $json = $body | ConvertTo-Json -Compress -Depth 4
-      $resp = Invoke-RestMethod -Uri ('{0}/api/agent/checkin' -f $ServerUrl) -Method Post -ContentType 'application/json' -Body $json -TimeoutSec 60
-      if ($resp.ok) {
-        $script:submitted = $true
-        $form.Close()
-      } else {
-        $status.Text = [string]$resp.error
-        $submit.Enabled = $true
-      }
-    } catch {
-      $status.Text = 'Could not reach the server. Try again in a moment.'
-      $submit.Enabled = $true
-    }
+  } catch {
+    $status.Text = 'Could not reach the server. Try again in a moment.'
+    $submit.Enabled = $true
   }
 })
 $flow.Controls.Add($submit)
+
+Select-Role 'student'
 
 [System.Windows.Forms.Application]::Run($form)
 '@
@@ -922,6 +923,57 @@ function Show-CheckinGate {
   Ensure-CheckinScript
   $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -UserName "{3}"' -f $script:CheckinScriptPath, $ServerUrl, $ConfigPath, ($UserName -replace '"', '""')
   Invoke-Interactive -FilePath 'powershell.exe' -ArgumentList $argLine
+}
+
+function Set-DownloadBlock {
+  # Apply or remove the Software Restriction Policy that blocks executables and
+  # installers from user download/desktop/temp locations. PolicyScope = 1 keeps
+  # local administrators exempt so the Windows admin account is unaffected.
+  param([bool]$Enabled)
+  $base = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Safer\CodeIdentifiers'
+  if (-not $Enabled) {
+    try {
+      Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction Stop
+      Write-Log 'Download/install block policy removed.'
+    } catch {
+      Write-Log ('Could not remove download/install block policy: {0}' -f $_.Exception.Message)
+    }
+    return
+  }
+  try {
+    Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -Path $base -Force | Out-Null
+    New-ItemProperty -Path $base -Name 'DefaultLevel' -PropertyType DWord -Value 262144 -Force | Out-Null
+    New-ItemProperty -Path $base -Name 'PolicyScope' -PropertyType DWord -Value 1 -Force | Out-Null
+    New-ItemProperty -Path $base -Name 'TransparentEnabled' -PropertyType DWord -Value 2 -Force | Out-Null
+    $pathsKey = Join-Path $base '0\Paths'
+    New-Item -Path $pathsKey -Force | Out-Null
+    $blocked = New-Object System.Collections.Generic.List[string]
+    $profileRoot = Join-Path $env:SystemDrive 'Users'
+    if (Test-Path -LiteralPath $profileRoot) {
+      Get-ChildItem -LiteralPath $profileRoot -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Name -match '(?i)^(public|default|all users)$') { return }
+        $blocked.Add((Join-Path $_.FullName 'Downloads'))
+        $blocked.Add((Join-Path $_.FullName 'Desktop'))
+        $blocked.Add((Join-Path $_.FullName 'AppData\Local\Temp'))
+      }
+    }
+    $blocked.Add((Join-Path $env:SystemRoot 'Temp'))
+    $count = 0
+    foreach ($path in ($blocked | Sort-Object -Unique)) {
+      if (-not $path) { continue }
+      $ruleName = [guid]::NewGuid().ToString('B').ToUpper()
+      $ruleKey = Join-Path $pathsKey $ruleName
+      New-Item -Path $ruleKey -Force | Out-Null
+      New-ItemProperty -Path $ruleKey -Name 'ItemData' -PropertyType String -Value $path -Force | Out-Null
+      New-ItemProperty -Path $ruleKey -Name 'SaferFlags' -PropertyType DWord -Value 0 -Force | Out-Null
+      New-ItemProperty -Path $ruleKey -Name 'Description' -PropertyType String -Value 'Lab Command Center: blocked download/install path' -Force | Out-Null
+      $count++
+    }
+    Write-Log ('Download/install block policy applied ({0} path rules).' -f $count)
+  } catch {
+    Write-Log ('Download/install block policy failed: {0}' -f $_.Exception.Message)
+  }
 }
 
 function Enable-RemoteDesktop {
@@ -1542,6 +1594,28 @@ try {
       }
       Apply-SigninMethod
 
+      # ---- Windows admin account + download/install block policy ------------
+      $cfgNow = Get-Config
+      if ($cfgNow) {
+        $didSave = $false
+        if ($null -ne $hb.computer.adminWindowsUser) {
+          $cfgNow | Add-Member -NotePropertyName adminWindowsUser -NotePropertyValue ([string]$hb.computer.adminWindowsUser) -Force
+          $didSave = $true
+        }
+        if ($null -ne $hb.computer.blockDownloads) {
+          $cfgNow | Add-Member -NotePropertyName blockDownloads -NotePropertyValue ([bool]$hb.computer.blockDownloads) -Force
+          $didSave = $true
+        }
+        if ($didSave) { Save-Config $cfgNow }
+      }
+      $cfgNow = Get-Config
+      $blockDownloads = $false
+      if ($cfgNow -and $cfgNow.PSObject.Properties.Name -contains 'blockDownloads') { $blockDownloads = [bool]$cfgNow.blockDownloads }
+      if ($null -eq $script:blockDownloadsApplied -or $script:blockDownloadsApplied -ne $blockDownloads) {
+        Set-DownloadBlock -Enabled $blockDownloads
+        $script:blockDownloadsApplied = $blockDownloads
+      }
+
       # ---- check-in gate -----------------------------------------------------
       $isSystemUser = ($user -match '(?i)^nt authority\\') -or ($user -match '\$$')
       if ($user -and -not $isSystemUser) {
@@ -1555,7 +1629,31 @@ try {
         $gateSession = ''
         if ($cfgNow.PSObject.Properties.Name -contains 'gateSession') { $gateSession = [string]$cfgNow.gateSession }
         $gateNeeded = ($hb.computer.checkinRequired -eq $true) -or ($gateSession -ne $sessionToken)
-        if ($gateNeeded -and -not (Get-CheckinGateRunning)) {
+        $adminWindowsUser = ''
+        if ($cfgNow.PSObject.Properties.Name -contains 'adminWindowsUser') { $adminWindowsUser = [string]$cfgNow.adminWindowsUser }
+        $adminSession = $false
+        if ($adminWindowsUser) {
+          $consoleName = $user
+          if ($consoleName -match '\\(?<name>[^\\]+)$') { $consoleName = $Matches['name'] }
+          $adminName = $adminWindowsUser
+          if ($adminName -match '\\(?<name>[^\\]+)$') { $adminName = $Matches['name'] }
+          if ($adminName -and $adminName -ieq $consoleName) { $adminSession = $true }
+        }
+        if ($gateNeeded -and $adminSession) {
+          try {
+            $body = @{ token = $config.token; userName = $user; role = 'admin'; studentName = $user }
+            $resp = Invoke-ApiJson -Method 'POST' -Path '/api/agent/checkin' -Body $body
+            if ($resp.ok) {
+              $cfgNow | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
+              Save-Config $cfgNow
+              Write-Log ('Administrator check-in recorded for {0}' -f $user)
+            } else {
+              Write-Log ('Administrator check-in rejected: {0}' -f $resp.error)
+            }
+          } catch {
+            Write-Log ('Administrator check-in failed: {0}' -f $_.Exception.Message)
+          }
+        } elseif ($gateNeeded -and -not (Get-CheckinGateRunning)) {
           Show-CheckinGate -UserName $user
           $cfgNow | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
           Save-Config $cfgNow

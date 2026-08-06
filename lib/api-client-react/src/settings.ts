@@ -23,6 +23,8 @@ export interface LabSettings {
   sharedAccountUser: string | null;
   sharedAccountPassword: string | null;
   adminGateSecret: string | null;
+  adminWindowsUser: string | null;
+  blockDownloads: boolean | null;
 }
 
 export interface UpdateLabSettingsInput {
@@ -31,6 +33,8 @@ export interface UpdateLabSettingsInput {
   sharedAccountUser?: string | null;
   sharedAccountPassword?: string | null;
   adminGateSecret?: string | null;
+  adminWindowsUser?: string | null;
+  blockDownloads?: boolean | null;
 }
 
 export const getLabSettingsUrl = (): string => "/api/lab/settings";

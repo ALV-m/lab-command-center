@@ -30,10 +30,19 @@ router.get("/lab/checkins", async (_req, res): Promise<void> => {
   res.json(
     GetCheckinsResponse.parse({
       checkins: rows.map((row) => ({
-        ...row,
+        id: row.id,
+        computerId: row.computerId,
+        computerName: row.computerName,
+        userName: row.userName ?? undefined,
+        role: row.role ?? undefined,
+        studentName: row.studentName,
+        phone: row.phone ?? undefined,
+        admissionNo: row.admissionNo ?? undefined,
+        course: row.course ?? undefined,
+        class: row.className ?? undefined,
+        reason: row.reason ?? undefined,
         email: row.email ?? undefined,
         photoFileId: row.photoFileId ?? undefined,
-        userName: row.userName ?? undefined,
         submittedAt: iso(row.submittedAt) as string,
       })),
     }),
