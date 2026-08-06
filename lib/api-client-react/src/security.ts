@@ -10,7 +10,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-import { customFetch } from "./custom-fetch";
+import { customFetch, tenantApiPrefix } from "./custom-fetch";
 import type { BodyType, ErrorType } from "./custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
@@ -121,9 +121,9 @@ export const useBroadcastSecurityAction = <TError = ErrorType<unknown>, TContext
   TContext
 > => useMutation(getBroadcastSecurityActionMutationOptions(options));
 
-export const getScanReportUrl = (days = 0): string => `/api/reports/scans?days=${days}`;
-export const getScansCsvUrl = (days = 0): string => `/api/reports/scans.csv?days=${days}`;
-export const getSecurityHealthCsvUrl = (): string => "/api/security/health.csv";
+export const getScanReportUrl = (days = 0): string => `${tenantApiPrefix()}/reports/scans?days=${days}`;
+export const getScansCsvUrl = (days = 0): string => `${tenantApiPrefix()}/reports/scans.csv?days=${days}`;
+export const getSecurityHealthCsvUrl = (): string => `${tenantApiPrefix()}/security/health.csv`;
 
 export const getScanReport = async (
   days = 0,

@@ -8,6 +8,30 @@ export type BodyType<T> = T;
 
 export type AuthTokenGetter = () => Promise<string | null> | string | null;
 
+// ---------------------------------------------------------------------------
+// Tenant routing
+// ---------------------------------------------------------------------------
+// A tenant lab is served under `/t/:slug`, and every API call it makes hits
+// `/t/:slug/api/...`. The api-client's request paths are still the plain
+// `/api/...` URLs (generated client and hand-written helpers alike), so the
+// prefix is resolved here once, from the browser location, and prepended at
+// fetch time. Platform pages (`/`, `/register`, `/admin`) never match and are
+// left untouched.
+
+export function resolveTenantSlug(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  return /^\/t\/([^/]+)(?:\/|$)/.exec(window.location.pathname)?.[1] ?? undefined;
+}
+
+/**
+ * Build the API base path for the given tenant slug, falling back to the slug
+ * of the current page. Returns `/api` when there is no tenant context.
+ */
+export const tenantApiPrefix = (slug?: string): string => {
+  const s = slug ?? resolveTenantSlug();
+  return s ? `/t/${s}/api` : "/api";
+};
+
 const NO_BODY_STATUS = new Set([204, 205, 304]);
 const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
@@ -61,12 +85,19 @@ function isUrl(input: RequestInfo | URL): input is URL {
 }
 
 function applyBaseUrl(input: RequestInfo | URL): RequestInfo | URL {
-  if (!_baseUrl) return input;
   const url = resolveUrl(input);
-  // Only prepend to relative paths (starting with /)
+  // Only rewrite relative paths (starting with /)
   if (!url.startsWith("/")) return input;
 
-  const absolute = `${_baseUrl}${url}`;
+  let absolute: string | null = null;
+  if (_baseUrl) {
+    absolute = `${_baseUrl}${url}`;
+  } else if (url.startsWith("/api/")) {
+    const slug = resolveTenantSlug();
+    if (slug) absolute = `/t/${slug}${url}`;
+  }
+  if (!absolute) return input;
+
   if (typeof input === "string") return absolute;
   if (isUrl(input)) return new URL(absolute);
   return new Request(absolute, input as Request);

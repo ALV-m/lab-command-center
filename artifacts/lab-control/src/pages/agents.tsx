@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getLabSettingsQueryKey,
+  tenantApiPrefix,
   useGetLabSettings,
   useUpdateLabSettings,
 } from "@workspace/api-client-react";
@@ -21,8 +22,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-
-const AGENT_DOWNLOAD_URL = "/api/agent/download";
 
 function CodeBlock({ children }: { children: string }) {
   const copy = () => {
@@ -47,9 +46,11 @@ function CodeBlock({ children }: { children: string }) {
 function Agents() {
   const queryClient = useQueryClient();
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const downloadUrl = `${origin}${AGENT_DOWNLOAD_URL}`;
-  const installCmd = `powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -ServerUrl ${origin} -Install`;
-  const runCmd = `powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -ServerUrl ${origin}`;
+  const serverUrl = `${origin}${tenantApiPrefix().replace(/\/api$/, "")}`;
+  const downloadPath = `${tenantApiPrefix()}/agent/download`;
+  const downloadUrl = `${origin}${downloadPath}`;
+  const installCmd = `powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -ServerUrl ${serverUrl} -Install`;
+  const runCmd = `powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -ServerUrl ${serverUrl}`;
 
   const { data: settings } = useGetLabSettings({
     query: { queryKey: getLabSettingsQueryKey(), refetchInterval: 30_000 },
@@ -123,7 +124,7 @@ function Agents() {
           </p>
         </div>
         <Button asChild>
-          <a href={AGENT_DOWNLOAD_URL}>
+          <a href={downloadPath}>
             <Download className="size-4" />
             Download lab-agent.ps1
           </a>

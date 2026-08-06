@@ -10,7 +10,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-import { customFetch } from "./custom-fetch";
+import { customFetch, tenantApiPrefix } from "./custom-fetch";
 import type { ErrorType } from "./custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
@@ -106,7 +106,7 @@ export const getLatestScreenshot = async (
 };
 
 export const screenshotFileUrl = (fileId: string): string =>
-  `/api/lab/files/screenshots/${fileId}`;
+  `${tenantApiPrefix()}/lab/files/screenshots/${fileId}`;
 
 export const getLatestScreenshotQueryKey = (computerId: number) =>
   ["getLatestScreenshot", computerId] as const;

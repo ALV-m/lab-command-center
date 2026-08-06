@@ -6,7 +6,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-import { customFetch } from "./custom-fetch";
+import { customFetch, tenantApiPrefix } from "./custom-fetch";
 import type { ErrorType } from "./custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
@@ -35,12 +35,12 @@ export interface ViolationsReportRow {
 
 export type PeripheralsReportRow = ViolationsReportRow;
 
-export const getAttendanceReportUrl = (days = 0): string => `/api/reports/attendance?days=${days}`;
-export const getViolationsReportUrl = (days = 0): string => `/api/reports/violations?days=${days}`;
-export const getPeripheralsReportUrl = (days = 0): string => `/api/reports/peripherals?days=${days}`;
-export const getAttendanceCsvUrl = (days = 0): string => `/api/reports/attendance.csv?days=${days}`;
-export const getViolationsCsvUrl = (days = 0): string => `/api/reports/violations.csv?days=${days}`;
-export const getPeripheralsCsvUrl = (days = 0): string => `/api/reports/peripherals.csv?days=${days}`;
+export const getAttendanceReportUrl = (days = 0): string => `${tenantApiPrefix()}/reports/attendance?days=${days}`;
+export const getViolationsReportUrl = (days = 0): string => `${tenantApiPrefix()}/reports/violations?days=${days}`;
+export const getPeripheralsReportUrl = (days = 0): string => `${tenantApiPrefix()}/reports/peripherals?days=${days}`;
+export const getAttendanceCsvUrl = (days = 0): string => `${tenantApiPrefix()}/reports/attendance.csv?days=${days}`;
+export const getViolationsCsvUrl = (days = 0): string => `${tenantApiPrefix()}/reports/violations.csv?days=${days}`;
+export const getPeripheralsCsvUrl = (days = 0): string => `${tenantApiPrefix()}/reports/peripherals.csv?days=${days}`;
 
 export const getAttendanceReport = async (
   days = 0,
