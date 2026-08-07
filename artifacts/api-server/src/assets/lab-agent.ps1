@@ -1543,13 +1543,25 @@ if ($Install) {
 # ---------------------------------------------------------------------------
 # Single-instance guard
 # ---------------------------------------------------------------------------
+# The lock holds the PID of the last agent process. If that process was killed
+# without cleaning up, the PID can later be reused by an unrelated process
+# (e.g. svchost), so only treat it as a running instance when the process is
+# actually executing lab-agent.ps1. Otherwise clear the stale lock.
 $existingPid = Get-Content -LiteralPath $LockPath -ErrorAction SilentlyContinue
+$anotherRunning = $false
+if ($existingPid -match '^\d+$') {
+  try {
+    $lockProc = Get-CimInstance Win32_Process -Filter "ProcessId = $existingPid" -ErrorAction Stop
+    if ($lockProc -and $lockProc.Name -match '^(powershell|pwsh)\.exe$' -and $lockProc.CommandLine -match 'lab-agent\.ps1') { $anotherRunning = $true }
+  } catch {}
+}
+if ($anotherRunning) {
+  Write-Log ('Another instance is running (PID {0}). Exiting.' -f $existingPid)
+  exit 0
+}
 if ($existingPid) {
-  $proc = Get-Process -Id $existingPid -ErrorAction SilentlyContinue
-  if ($proc) {
-    Write-Log ('Another instance is running (PID {0}). Exiting.' -f $existingPid)
-    exit 0
-  }
+  Write-Log ('Clearing stale agent lock (PID {0}).' -f $existingPid)
+  Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
 }
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
 Set-Content -LiteralPath $LockPath -Value $PID -Encoding UTF8 -ErrorAction SilentlyContinue
