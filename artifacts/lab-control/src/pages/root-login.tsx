@@ -60,8 +60,7 @@ function RootLogin() {
           <CardHeader>
             <CardTitle>Sign in</CardTitle>
             <CardDescription>
-              Use your username and password. Both lab accounts and platform
-              administrators sign in here.
+              Use your username and password to continue.
             </CardDescription>
           </CardHeader>
           <CardContent>

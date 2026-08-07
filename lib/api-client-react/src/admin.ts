@@ -54,16 +54,12 @@ export interface TenantsListResult {
   tenants: TenantListItem[];
 }
 
-export interface PlatformStats {
+export interface PlatformStatsResult {
   totalTenants: number;
   activeTenants: number;
   suspendedTenants: number;
   totalComputers: number;
   totalAdmins: number;
-}
-
-export interface PlatformStatsResult {
-  stats: PlatformStats;
 }
 
 export interface TenantStatusUpdateInput {

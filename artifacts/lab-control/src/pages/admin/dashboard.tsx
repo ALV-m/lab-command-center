@@ -321,11 +321,11 @@ function AdminDashboard() {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <StatCard icon={Boxes} label="Total tenants" value={statsQuery.data?.stats.totalTenants ?? null} loading={statsQuery.isLoading} />
-          <StatCard icon={CheckCircle2} label="Active" value={statsQuery.data?.stats.activeTenants ?? null} loading={statsQuery.isLoading} />
-          <StatCard icon={ShieldCheck} label="Suspended" value={statsQuery.data?.stats.suspendedTenants ?? null} loading={statsQuery.isLoading} />
-          <StatCard icon={Monitor} label="Computers" value={statsQuery.data?.stats.totalComputers ?? null} loading={statsQuery.isLoading} />
-          <StatCard icon={UserCog} label="Admins" value={statsQuery.data?.stats.totalAdmins ?? null} loading={statsQuery.isLoading} />
+          <StatCard icon={Boxes} label="Total tenants" value={statsQuery.data?.totalTenants ?? null} loading={statsQuery.isLoading} />
+          <StatCard icon={CheckCircle2} label="Active" value={statsQuery.data?.activeTenants ?? null} loading={statsQuery.isLoading} />
+          <StatCard icon={ShieldCheck} label="Suspended" value={statsQuery.data?.suspendedTenants ?? null} loading={statsQuery.isLoading} />
+          <StatCard icon={Monitor} label="Computers" value={statsQuery.data?.totalComputers ?? null} loading={statsQuery.isLoading} />
+          <StatCard icon={UserCog} label="Admins" value={statsQuery.data?.totalAdmins ?? null} loading={statsQuery.isLoading} />
         </div>
 
         <Card>
