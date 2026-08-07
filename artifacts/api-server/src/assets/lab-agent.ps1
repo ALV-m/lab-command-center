@@ -50,7 +50,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.10.0'
+$script:AgentVersion = '1.11.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $PendingPath = Join-Path $ConfigDir 'pending\checkins.json'
@@ -991,6 +991,48 @@ function Stop-CheckinGate {
   } catch {}
 }
 
+function New-InteractiveGateTask {
+  # Registers an interactive scheduled task that runs a PowerShell command in a
+  # specific logged-on user's session. Uses the PowerShell ScheduledTasks
+  # cmdlets first because they encode the command line correctly in the task
+  # XML; schtasks.exe mis-parses /TR values that contain embedded quotes (the
+  # agent paths/URLs are quoted), which makes /Create fail on some Windows 11
+  # builds. Returns $true on success.
+  param(
+    [string]$TaskName,
+    [string]$UserName,
+    [string]$ArgumentList,
+    [switch]$AtLogon
+  )
+  if (-not $UserName) { return $false }
+  try {
+    try {
+      $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $ArgumentList
+      if ($AtLogon) {
+        $trigger = New-ScheduledTaskTrigger -AtLogOn -User $UserName
+      } else {
+        $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date)
+      }
+      $principal = New-ScheduledTaskPrincipal -UserId $UserName -LogonType Interactive -RunLevel Highest
+      $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+      Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+      Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
+      return $true
+    } catch {
+      Write-Log ('ScheduledTask cmdlet failed for {0} ({1}); trying schtasks.exe.' -f $TaskName, $_.Exception.Message)
+    }
+    $tr = '"powershell.exe" {0}' -f $ArgumentList
+    $schArgs = @('/Create', '/TN', $TaskName, '/TR', $tr, '/SC', $(if ($AtLogon) { 'ONLOGON' } else { 'ONCE' }), '/RU', $UserName, '/RL', 'HIGHEST', '/IT', '/F')
+    if (-not $AtLogon) { $schArgs += @('/ST', '00:00') }
+    $schOutput = (& schtasks.exe @schArgs 2>&1) | Out-String
+    if ($LASTEXITCODE -eq 0) { return $true }
+    Write-Log ('schtasks failed to register {0} (exit {1}): {2}' -f $TaskName, $LASTEXITCODE, ($schOutput.Trim()))
+  } catch {
+    Write-Log ('Could not create interactive task {0}: {1}' -f $TaskName, $_.Exception.Message)
+  }
+  return $false
+}
+
 function Start-GateTask {
   # Runs the gate in a specific logged-on user's session via an interactive
   # scheduled task. This is the most reliable way to show a WinForms form on
@@ -998,19 +1040,18 @@ function Start-GateTask {
   param([string]$UserName, [string]$ArgumentList)
   if (-not $UserName) { return $false }
   $taskName = 'LabCC-Gate-' + [Guid]::NewGuid().ToString('N')
-  $tr = '"powershell.exe" {0}' -f $ArgumentList
+  if (-not (New-InteractiveGateTask -TaskName $taskName -UserName $UserName -ArgumentList $ArgumentList)) { return $false }
   try {
-    & schtasks.exe /Create /TN $taskName /TR $tr /SC ONCE /ST 00:00 /RU $UserName /IT /RL HIGHEST /F 2>$null | Out-Null
-    Start-Sleep -Milliseconds 400
-    for ($attempt = 0; $attempt -lt 3; $attempt++) {
-      & schtasks.exe /Run /TN $taskName 2>$null | Out-Null
-      if ($LASTEXITCODE -eq 0) { break }
-      Start-Sleep -Milliseconds 500
-    }
-    Start-Sleep -Milliseconds 800
-    & schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
+    Start-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+    # The definition is no longer needed once the gate is running; removing it
+    # does not stop the running instance, it just prevents task accumulation.
+    Start-Sleep -Seconds 2
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
     return $true
-  } catch {}
+  } catch {
+    Write-Log ('Could not run gate task {0}: {1}' -f $taskName, $_.Exception.Message)
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+  }
   return $false
 }
 
@@ -1101,16 +1142,16 @@ function Register-LogonGate {
   if ($script:logonGateRegisteredFor -eq $UserName) { return $true }
   try {
     Ensure-GateLauncher
-    $launcherCmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -GateScriptPath "{3}" -PendingPath "{4}" -ConfigDir "{5}"' -f $script:GateLauncherPath, $ServerUrl, $ConfigPath, $script:CheckinScriptPath, $script:PendingPath, $ConfigDir
-    & schtasks.exe /Delete /TN $LogonTaskName /F 2>$null | Out-Null
-    & schtasks.exe /Create /TN $LogonTaskName /TR $launcherCmd /SC ONLOGON /RU $UserName /RL HIGHEST /IT /F 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) {
+    $launcherCmd = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -GateScriptPath "{3}" -PendingPath "{4}" -ConfigDir "{5}"' -f $script:GateLauncherPath, $ServerUrl, $ConfigPath, $script:CheckinScriptPath, $script:PendingPath, $ConfigDir
+    if (New-InteractiveGateTask -TaskName $LogonTaskName -UserName $UserName -ArgumentList $launcherCmd -AtLogon) {
       $script:logonGateRegisteredFor = $UserName
       Write-Log ('Logon gate registered for {0} so the sign-in gate appears at every logon.' -f $UserName)
       return $true
     }
     Write-Log ('Could not register the logon gate for {0}; the agent will still show the gate after login.' -f $UserName)
-  } catch {}
+  } catch {
+    Write-Log ('Could not register the logon gate for {0}: {1}' -f $UserName, $_.Exception.Message)
+  }
   return $false
 }
 
@@ -1860,7 +1901,7 @@ function Apply-SigninMethod {
       Save-Config $cfg
       # The shared account auto-logs in at boot, so its ONLOGON task is what
       # brings the login form up directly instead of the Windows login page.
-      Register-LogonGate -UserName $user
+      Register-LogonGate -UserName $user | Out-Null
       if ($enabled) {
         $body = @{ token = $cfg.token; type = 'autologon'; message = 'Auto-login enabled on {0}' -f $env:COMPUTERNAME; detail = ('Auto-login set for {0}' -f $user) }
         try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $body | Out-Null } catch {}
@@ -2096,7 +2137,7 @@ if ($Install) {
     # the shared auto-login account so the gate is the first thing at boot.
     Ensure-GateLauncher
     $who = (whoami 2>$null)
-    if ($who) { Register-LogonGate -UserName $who }
+    if ($who) { Register-LogonGate -UserName $who | Out-Null }
   } finally {
     $ErrorActionPreference = $prevEap
   }
