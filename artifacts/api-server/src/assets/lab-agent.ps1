@@ -263,6 +263,7 @@ $script:WarningScriptPath = Join-Path $ConfigDir 'peripheral-warning.ps1'
 $script:MessageScriptPath = Join-Path $ConfigDir 'message.ps1'
 $script:CheckinScriptPath = Join-Path $ConfigDir 'checkin-gate.ps1'
 $script:ScreenshotScriptPath = Join-Path $ConfigDir 'capture-screenshot.ps1'
+$script:InputScriptPath = Join-Path $ConfigDir 'remote-input.ps1'
 $script:lastWarningKey = $null
 $script:warningActive = $false
 $script:idleHelperLoaded = $false
@@ -994,6 +995,177 @@ function Enable-RemoteDesktop {
   return @{ success = $true; detail = ('Host {0} IP {1}. {2}' -f $env:COMPUTERNAME, $ip, ($notes -join ' ')) }
 }
 
+function Ensure-InputScript {
+  $content = @'
+param(
+  [string]$Action = 'move',
+  [string]$X = '',
+  [string]$Y = '',
+  [string]$Button = 'left',
+  [string]$Key = '',
+  [string]$Text = '',
+  [string]$Mods = '',
+  [string]$Delta = '0'
+)
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class LccRemoteInput {
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint flags, UIntPtr extraInfo);
+}
+"@
+
+function Get-Vk {
+  param([string]$K)
+  switch ($K) {
+    'Enter' { return 0x0D }
+    'Tab' { return 0x09 }
+    'Esc' { return 0x1B }
+    'Backspace' { return 0x08 }
+    'Delete' { return 0x2E }
+    'Home' { return 0x24 }
+    'End' { return 0x23 }
+    'PageUp' { return 0x21 }
+    'PageDown' { return 0x22 }
+    'Space' { return 0x20 }
+    'Up' { return 0x26 }
+    'Down' { return 0x28 }
+    'Left' { return 0x25 }
+    'Right' { return 0x27 }
+    'CapsLock' { return 0x14 }
+    'NumLock' { return 0x90 }
+    'PrtSc' { return 0x2C }
+    'F1' { return 0x70 }
+    'F2' { return 0x71 }
+    'F3' { return 0x72 }
+    'F4' { return 0x73 }
+    'F5' { return 0x74 }
+    'F6' { return 0x75 }
+    'F7' { return 0x76 }
+    'F8' { return 0x77 }
+    'F9' { return 0x78 }
+    'F10' { return 0x79 }
+    'F11' { return 0x7A }
+    'F12' { return 0x7B }
+    'Win' { return 0x5B }
+    'Ctrl' { return 0x11 }
+    'Alt' { return 0x12 }
+    'Shift' { return 0x10 }
+    default {
+      if ($K.Length -eq 1) { return [int][char]::ToUpper($K[0]) }
+      return 0
+    }
+  }
+}
+
+function Send-MouseButton {
+  param([string]$Btn, [string]$Phase)
+  $down = 0x0002
+  $up = 0x0004
+  if ($Btn -eq 'right') { $down = 0x0008; $up = 0x0010 }
+  if ($Btn -eq 'middle') { $down = 0x0020; $up = 0x0040 }
+  if ($Phase -eq 'up') {
+    [LccRemoteInput]::mouse_event($up, 0, 0, 0, [UIntPtr]::Zero)
+  } else {
+    [LccRemoteInput]::mouse_event($down, 0, 0, 0, [UIntPtr]::Zero)
+  }
+}
+
+function Send-Key {
+  param([string]$Key, [string[]]$ModKeys)
+  $vk = Get-Vk $Key
+  if ($vk -eq 0) { return }
+  $modVks = @()
+  foreach ($m in $ModKeys) {
+    $mv = Get-Vk $m
+    if ($mv -ne 0) { $modVks += $mv }
+  }
+  foreach ($mv in $modVks) { [LccRemoteInput]::keybd_event([byte]$mv, 0, 0, [UIntPtr]::Zero) }
+  [LccRemoteInput]::keybd_event([byte]$vk, 0, 0, [UIntPtr]::Zero)
+  [LccRemoteInput]::keybd_event([byte]$vk, 0, 2, [UIntPtr]::Zero)
+  foreach ($mv in $modVks) { [LccRemoteInput]::keybd_event([byte]$mv, 0, 2, [UIntPtr]::Zero) }
+}
+
+function Send-Text {
+  param([string]$Txt)
+  $sh = New-Object -ComObject WScript.Shell
+  $escaped = ($Txt.ToCharArray() | ForEach-Object {
+    $c = $_
+    if ('{}()^%+~[]'.Contains($c)) { '{' + $c + '}' } else { [string]$c }
+  }) -join ''
+  $sh.SendKeys($escaped)
+}
+
+$modList = @()
+if ($Mods) { $modList = @($Mods -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+switch ($Action) {
+  'move' {
+    if ($X -ne '' -and $Y -ne '') { [LccRemoteInput]::SetCursorPos([int]$X, [int]$Y) | Out-Null }
+  }
+  'click' {
+    if ($X -ne '' -and $Y -ne '') { [LccRemoteInput]::SetCursorPos([int]$X, [int]$Y) | Out-Null }
+    Send-MouseButton -Btn $Button -Phase 'down'
+    Start-Sleep -Milliseconds 40
+    Send-MouseButton -Btn $Button -Phase 'up'
+  }
+  'dblclick' {
+    if ($X -ne '' -and $Y -ne '') { [LccRemoteInput]::SetCursorPos([int]$X, [int]$Y) | Out-Null }
+    1..2 | ForEach-Object {
+      Send-MouseButton -Btn $Button -Phase 'down'
+      Start-Sleep -Milliseconds 40
+      Send-MouseButton -Btn $Button -Phase 'up'
+      Start-Sleep -Milliseconds 60
+    }
+  }
+  'down' {
+    if ($X -ne '' -and $Y -ne '') { [LccRemoteInput]::SetCursorPos([int]$X, [int]$Y) | Out-Null }
+    Send-MouseButton -Btn $Button -Phase 'down'
+  }
+  'up' {
+    if ($X -ne '' -and $Y -ne '') { [LccRemoteInput]::SetCursorPos([int]$X, [int]$Y) | Out-Null }
+    Send-MouseButton -Btn $Button -Phase 'up'
+  }
+  'scroll' {
+    $delta = 0
+    if ($Delta -ne '') { $delta = [int]$Delta }
+    $data = 0
+    if ($delta -lt 0) { $data = [uint32](0xFFFFFFFF - [math]::Min([math]::Abs($delta), 2147483647)) }
+    else { $data = [uint32]$delta }
+    [LccRemoteInput]::mouse_event(0x0800, 0, 0, $data, [UIntPtr]::Zero)
+  }
+  'key' {
+    Send-Key -Key $Key -ModKeys $modList
+  }
+  'type' {
+    if ($Text) { Send-Text -Txt $Text }
+  }
+}
+'@
+  Set-Content -LiteralPath $script:InputScriptPath -Value $content -Encoding UTF8
+}
+
+function Send-RemoteInput {
+  param($Payload)
+  Ensure-InputScript
+  $type = [string]$Payload.type
+  if (-not $type) { return @{ success = $false; detail = 'Missing input type.' } }
+  $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Action "{1}" -X "{2}" -Y "{3}" -Button "{4}" -Key "{5}" -Text "{6}" -Mods "{7}" -Delta "{8}"' -f `
+    $script:InputScriptPath,
+    ($type -replace '"', '""'),
+    ([string]$Payload.x -replace '"', '""'),
+    ([string]$Payload.y -replace '"', '""'),
+    ([string]$Payload.button -replace '"', '""'),
+    ([string]$Payload.key -replace '"', '""'),
+    ([string]$Payload.text -replace '"', '""'),
+    ([string]$Payload.mods -replace '"', '""'),
+    ([string]$Payload.delta -replace '"', '""')
+  Invoke-Interactive -FilePath 'powershell.exe' -ArgumentList $argLine
+  return @{ success = $true; detail = ('Remote input sent: {0}' -f $type) }
+}
+
 function Receive-PushedFile {
   param($Payload)
   if (-not $Payload.fileId) { return @{ success = $false; detail = 'Missing fileId' } }
@@ -1389,6 +1561,10 @@ function Execute-Action {
       }
       'remote_control' {
         $result = Enable-RemoteDesktop
+        break
+      }
+      'remote_input' {
+        $result = Send-RemoteInput $payload
         break
       }
       'block_usb' {

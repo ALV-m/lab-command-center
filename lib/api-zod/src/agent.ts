@@ -8,6 +8,7 @@ export const AgentComputerAction = zod.enum([
   "send_message",
   "remote_view",
   "remote_control",
+  "remote_input",
   "block_usb",
   "allow_usb",
   "push_file",

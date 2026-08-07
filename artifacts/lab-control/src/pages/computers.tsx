@@ -1,4 +1,13 @@
-import { useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type WheelEvent as ReactWheelEvent,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ComputerActionInputAction,
@@ -19,6 +28,7 @@ import {
   Camera,
   ChevronDown,
   FileUp,
+  Keyboard,
   Lock,
   Monitor,
   MonitorPlay,
@@ -335,7 +345,7 @@ function Computers() {
                           onClick={() => setViewTarget(computer)}
                         >
                           <MousePointer2 className="size-4" />
-                          Remote view
+                          Remote view & control
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
@@ -634,6 +644,33 @@ function Computers() {
   );
 }
 
+type RemoteInputPayload = {
+  type: "move" | "click" | "dblclick" | "down" | "up" | "scroll" | "key" | "type";
+  x?: number;
+  y?: number;
+  button?: "left" | "right" | "middle";
+  key?: string;
+  text?: string;
+  mods?: string;
+  delta?: number;
+};
+
+const SPECIAL_KEYS: Record<string, string> = {
+  Enter: "Enter",
+  Tab: "Tab",
+  Escape: "Esc",
+  Backspace: "Backspace",
+  Delete: "Delete",
+  Home: "Home",
+  End: "End",
+  PageUp: "PageUp",
+  PageDown: "PageDown",
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+};
+
 function RemoteViewDialog({
   computer,
   open,
@@ -644,20 +681,29 @@ function RemoteViewDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const queryClient = useQueryClient();
+  const [controlEnabled, setControlEnabled] = useState(false);
+  const [keyboardEnabled, setKeyboardEnabled] = useState(false);
+  const [typeText, setTypeText] = useState("");
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+
+  const imgRef = useRef<HTMLImageElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const lastMoveRef = useRef(0);
+  const clickTimerRef = useRef<number | null>(null);
+  const dragRef = useRef<{ button: "left" | "right" | "middle"; x: number; y: number } | null>(null);
+  const downRef = useRef<{ x: number; y: number; t: number; button: "left" | "right" | "middle" } | null>(null);
+
   const { data, isFetching } = useGetLatestScreenshot(computer.id, {
     query: {
       queryKey: getLatestScreenshotQueryKey(computer.id),
-      refetchInterval: open ? 5_000 : false,
+      refetchInterval: open ? (controlEnabled ? 2_000 : 5_000) : false,
     },
   });
 
-  const captureMutation = useCreateComputerAction({
+  const actionMutation = useCreateComputerAction({
     mutation: {
       onSuccess: () => {
-        toast.success("Screenshot requested");
-        setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: getLatestScreenshotQueryKey(computer.id) });
-        }, 6_000);
+        queryClient.invalidateQueries({ queryKey: getGetComputersQueryKey() });
       },
       onError: (error) => toast.error(error.message),
     },
@@ -665,48 +711,315 @@ function RemoteViewDialog({
 
   const shot = data?.screenshot;
 
+  const invalidateShot = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: getLatestScreenshotQueryKey(computer.id) });
+  }, [queryClient, computer.id]);
+
+  const requestShot = useCallback(() => {
+    actionMutation.mutate({
+      computerId: computer.id,
+      data: { action: ComputerActionInputAction.remote_view },
+    });
+    window.setTimeout(invalidateShot, 4_000);
+  }, [actionMutation, computer.id, invalidateShot]);
+
+  const sendInput = useCallback(
+    (payload: RemoteInputPayload) => {
+      actionMutation.mutate({
+        computerId: computer.id,
+        data: {
+          action: ComputerActionInputAction.remote_input,
+          payload: JSON.stringify(payload),
+        },
+      });
+    },
+    [actionMutation, computer.id],
+  );
+
+  useEffect(() => {
+    if (!open) {
+      setControlEnabled(false);
+      setKeyboardEnabled(false);
+      setTypeText("");
+      setCursor(null);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !controlEnabled) return;
+    requestShot();
+    const timer = window.setInterval(requestShot, 4_000);
+    return () => window.clearInterval(timer);
+  }, [open, controlEnabled, requestShot]);
+
+  useEffect(() => {
+    return () => {
+      if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (keyboardEnabled) contentRef.current?.focus();
+  }, [keyboardEnabled]);
+
+  const toRemoteCoords = (event: ReactMouseEvent) => {
+    const img = imgRef.current;
+    if (!img || !img.naturalWidth || !img.naturalHeight) return null;
+    const rect = img.getBoundingClientRect();
+    const scale = Math.min(rect.width / img.naturalWidth, rect.height / img.naturalHeight);
+    const offsetX = (rect.width - img.naturalWidth * scale) / 2;
+    const offsetY = (rect.height - img.naturalHeight * scale) / 2;
+    const x = Math.round((event.clientX - rect.left - offsetX) / scale);
+    const y = Math.round((event.clientY - rect.top - offsetY) / scale);
+    return {
+      x: Math.max(0, Math.min(img.naturalWidth, x)),
+      y: Math.max(0, Math.min(img.naturalHeight, y)),
+    };
+  };
+
+  const buttonFor = (button: number): "left" | "right" | "middle" => {
+    if (button === 2) return "right";
+    if (button === 1) return "middle";
+    return "left";
+  };
+
+  const handleMouseMove = (event: ReactMouseEvent) => {
+    const point = toRemoteCoords(event);
+    if (point) setCursor(point);
+    if (!controlEnabled || !point) return;
+    if (downRef.current && !dragRef.current) {
+      const moved = Math.hypot(point.x - downRef.current.x, point.y - downRef.current.y);
+      if (moved > 6) {
+        dragRef.current = { button: downRef.current.button, x: downRef.current.x, y: downRef.current.y };
+        sendInput({
+          type: "down",
+          x: downRef.current.x,
+          y: downRef.current.y,
+          button: dragRef.current.button,
+        });
+      }
+    }
+    const now = Date.now();
+    if (now - lastMoveRef.current < 200) return;
+    lastMoveRef.current = now;
+    if (dragRef.current) {
+      sendInput({ type: "move", x: point.x, y: point.y, button: dragRef.current.button });
+    } else {
+      sendInput({ type: "move", x: point.x, y: point.y });
+    }
+  };
+
+  const handleMouseDown = (event: ReactMouseEvent) => {
+    if (!controlEnabled) return;
+    const point = toRemoteCoords(event);
+    if (!point) return;
+    event.preventDefault();
+    downRef.current = { ...point, t: Date.now(), button: buttonFor(event.button) };
+  };
+
+  const handleMouseUp = (event: ReactMouseEvent) => {
+    if (!controlEnabled) return;
+    const point = toRemoteCoords(event);
+    const down = downRef.current;
+    downRef.current = null;
+    if (!down || !point) return;
+    if (dragRef.current) {
+      sendInput({ type: "up", x: point.x, y: point.y, button: dragRef.current.button });
+      dragRef.current = null;
+      return;
+    }
+    const moved = Math.hypot(point.x - down.x, point.y - down.y);
+    if (moved > 6 || Date.now() - down.t > 500) {
+      sendInput({ type: "up", x: point.x, y: point.y, button: down.button });
+      return;
+    }
+    if (clickTimerRef.current) window.clearTimeout(clickTimerRef.current);
+    const button = down.button;
+    clickTimerRef.current = window.setTimeout(() => {
+      sendInput({ type: "click", x: point.x, y: point.y, button });
+    }, 250);
+  };
+
+  const handleDoubleClick = (event: ReactMouseEvent) => {
+    if (!controlEnabled) return;
+    const point = toRemoteCoords(event);
+    if (!point) return;
+    event.preventDefault();
+    if (clickTimerRef.current) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    sendInput({ type: "dblclick", x: point.x, y: point.y, button: "left" });
+  };
+
+  const handleWheel = (event: ReactWheelEvent) => {
+    if (!controlEnabled) return;
+    sendInput({ type: "scroll", delta: Math.round(event.deltaY) });
+  };
+
+  const modsFromEvent = (event: ReactKeyboardEvent) => {
+    const mods: string[] = [];
+    if (event.ctrlKey) mods.push("ctrl");
+    if (event.altKey) mods.push("alt");
+    if (event.shiftKey) mods.push("shift");
+    if (event.metaKey) mods.push("win");
+    return mods;
+  };
+
+  const handleKeyDown = (event: ReactKeyboardEvent) => {
+    if (!keyboardEnabled || event.repeat) return;
+    if ((event.target as HTMLElement).tagName === "INPUT") return;
+    if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return;
+    const mods = modsFromEvent(event);
+    if (event.key.length === 1) {
+      event.preventDefault();
+      if (mods.length > 0) {
+        sendInput({ type: "key", key: event.key.toUpperCase(), mods: mods.join(",") });
+      } else {
+        sendInput({ type: "type", text: event.key });
+      }
+      return;
+    }
+    const mapped = SPECIAL_KEYS[event.key];
+    if (mapped) {
+      event.preventDefault();
+      sendInput({ type: "key", key: mapped, mods: mods.join(",") });
+    }
+  };
+
+  const sendKey = (key: string, mods: string[]) => {
+    sendInput({ type: "key", key, mods: mods.join(",") });
+  };
+
+  const sendTypeText = () => {
+    const text = typeText;
+    if (!text) return;
+    sendInput({ type: "type", text });
+    setTypeText("");
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-      <DialogHeader>
-        <DialogTitle>Remote view — {computer.name}</DialogTitle>
-        <DialogDescription>
-          {shot
-            ? `Latest screen capture from ${formatDateTime(shot.takenAt)}.`
-            : "No screenshot available yet. Request one below."}
-        </DialogDescription>
-      </DialogHeader>
-      <div className="relative aspect-video w-full overflow-hidden rounded-md border bg-muted">
-        {shot ? (
-          <img
-            src={screenshotFileUrl(shot.fileId)}
-            alt={`Screenshot of ${computer.name}`}
-            className="h-full w-full object-contain"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-            {isFetching ? <Spinner className="size-4" /> : <Monitor className="size-4" />}
-            {isFetching ? "Checking for a screenshot…" : "No screenshot yet. Request one below."}
+      <DialogContent className="max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>Remote view & control — {computer.name}</DialogTitle>
+          <DialogDescription>
+            {shot
+              ? `Screen capture from ${formatDateTime(shot.takenAt)}. Input is relayed to the agent on its next check-in, so expect a short delay.`
+              : "No screenshot available yet. Request one below."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant={controlEnabled ? "default" : "outline"}
+              size="sm"
+              onClick={() => setControlEnabled((value) => !value)}
+            >
+              <MousePointer2 className="size-4" />
+              {controlEnabled ? "Remote control on" : "Enable remote control"}
+            </Button>
+            <Button
+              variant={keyboardEnabled ? "default" : "outline"}
+              size="sm"
+              disabled={!controlEnabled}
+              onClick={() => setKeyboardEnabled((value) => !value)}
+            >
+              <Keyboard className="size-4" />
+              {keyboardEnabled ? "Keyboard on" : "Keyboard off"}
+            </Button>
+            <div className="flex-1" />
+            <Button variant="outline" size="sm" disabled={actionMutation.isPending} onClick={requestShot}>
+              {actionMutation.isPending ? <Spinner className="size-4" /> : <Camera className="size-4" />}
+              Capture fresh view
+            </Button>
           </div>
-        )}
-      </div>
-      <DialogFooter>
-        <Button variant="outline" onClick={() => onOpenChange(false)}>
-          Close
-        </Button>
-        <Button
-          disabled={captureMutation.isPending}
-          onClick={() =>
-            captureMutation.mutate({
-              computerId: computer.id,
-              data: { action: ComputerActionInputAction.remote_view },
-            })
-          }
-        >
-          {captureMutation.isPending ? <Spinner className="size-4" /> : <Camera className="size-4" />}
-          Capture fresh view
-        </Button>
-      </DialogFooter>
+
+          {controlEnabled ? (
+            <div className="flex flex-wrap items-center gap-1.5 rounded-md border p-2">
+              <Button variant="ghost" size="sm" onClick={() => sendKey("Tab", ["alt"])}>
+                Alt+Tab
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => sendKey("R", ["win"])}>
+                Win+R
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => sendKey("D", ["win"])}>
+                Win+D
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => sendKey("C", ["ctrl"])}>
+                Ctrl+C
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => sendKey("V", ["ctrl"])}>
+                Ctrl+V
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => sendKey("Esc", [])}>
+                Esc
+              </Button>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <Input
+                  className="h-8 w-full"
+                  placeholder="Type text on the remote PC…"
+                  value={typeText}
+                  onChange={(event) => setTypeText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      sendTypeText();
+                    }
+                  }}
+                />
+                <Button variant="ghost" size="icon" onClick={sendTypeText} disabled={!typeText}>
+                  <Send className="size-4" />
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <div
+            ref={contentRef}
+            tabIndex={-1}
+            onKeyDown={handleKeyDown}
+            onMouseMove={handleMouseMove}
+            onMouseDown={handleMouseDown}
+            onMouseUp={handleMouseUp}
+            onDoubleClick={handleDoubleClick}
+            onWheel={handleWheel}
+            onContextMenu={(event) => controlEnabled && event.preventDefault()}
+            className={cn(
+              "relative aspect-video w-full overflow-hidden rounded-md border bg-muted outline-none",
+              controlEnabled && "cursor-crosshair focus-visible:ring-2 focus-visible:ring-ring",
+            )}
+          >
+            {shot ? (
+              <img
+                ref={imgRef}
+                src={screenshotFileUrl(shot.fileId)}
+                alt={`Screenshot of ${computer.name}`}
+                className="h-full w-full object-contain"
+                draggable={false}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+                {isFetching ? <Spinner className="size-4" /> : <Monitor className="size-4" />}
+                {isFetching ? "Checking for a screenshot…" : "No screenshot yet. Request one above."}
+              </div>
+            )}
+            {controlEnabled && shot ? (
+              <div className="absolute top-2 left-2 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-xs text-white">
+                <span className="size-1.5 animate-pulse rounded-full bg-red-500" />
+                Live control
+                {cursor ? ` — ${cursor.x}, ${cursor.y}` : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

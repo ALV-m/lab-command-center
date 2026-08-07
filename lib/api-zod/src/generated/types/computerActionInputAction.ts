@@ -17,6 +17,7 @@ export const ComputerActionInputAction = {
   send_message: 'send_message',
   remote_view: 'remote_view',
   remote_control: 'remote_control',
+  remote_input: 'remote_input',
   block_usb: 'block_usb',
   allow_usb: 'allow_usb',
   push_file: 'push_file',
