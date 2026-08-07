@@ -338,6 +338,7 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
           signinMethod === "shared_account" ? autoShared?.password ?? sharedPassSetting : null,
         adminWindowsUser: adminWindowsUserSetting,
         blockDownloads: blockDownloadsSetting === "true",
+        remoteViewActive: Boolean(computer.remoteViewUntil && computer.remoteViewUntil.getTime() > Date.now()),
       },
       allowedUsb,
       allowedDeviceIds,

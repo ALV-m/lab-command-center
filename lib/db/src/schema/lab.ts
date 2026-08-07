@@ -33,6 +33,7 @@ export const computersTable = pgTable("lab_computers", {
   macAddress: text("mac_address"),
   ipAddress: text("ip_address"),
   checkinRequired: boolean("checkin_required").notNull().default(false),
+  remoteViewUntil: timestamp("remote_view_until", { withTimezone: true }),
 });
 
 export const actionsTable = pgTable("lab_actions", {

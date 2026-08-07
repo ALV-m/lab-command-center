@@ -140,6 +140,7 @@ const TENANT_DDL_STATEMENTS = [
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS mac_address text;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS ip_address text;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS checkin_required boolean NOT NULL DEFAULT false;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS remote_view_until timestamptz;
   `,
   `
   CREATE TABLE IF NOT EXISTS lab_actions (

@@ -40,6 +40,8 @@ import {
 
 const router: IRouter = Router();
 
+const REMOTE_VIEW_TTL_MS = 45_000;
+
 const UPLOADS_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "data",
@@ -181,6 +183,16 @@ router.post("/lab/computers/:computerId/actions", async (req, res): Promise<void
       status: "queued",
     })
     .returning();
+
+  // Keep a remote view/control session alive so the agent keeps streaming
+  // screenshots and polls fast while the operator is looking at / controlling
+  // the PC. It expires on its own shortly after the last remote action.
+  if (body.data.action === "remote_view" || body.data.action === "remote_input") {
+    await db
+      .update(computersTable)
+      .set({ remoteViewUntil: new Date(Date.now() + REMOTE_VIEW_TTL_MS) })
+      .where(eq(computersTable.id, params.data.computerId));
+  }
 
   if (body.data.action === "lock") {
     await db.update(computersTable).set({ status: "locked", checkinRequired: true }).where(eq(computersTable.id, params.data.computerId));

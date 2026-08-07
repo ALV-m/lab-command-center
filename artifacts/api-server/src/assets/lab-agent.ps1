@@ -36,26 +36,28 @@
 #
 #   -Install copies the script into ProgramData and registers a scheduled
 #   task that starts it at boot as the SYSTEM account (before any user logs
-#   in), so one install covers every user on the PC. Run it from an elevated
-#   PowerShell window.
+#   in), so one install covers every user on the PC. It also registers a
+#   logon task that shows the sign-in gate immediately whenever the current
+#   user logs in. Run it from an elevated PowerShell window.
 # ============================================================================
 
 param(
   [string]$ServerUrl = $env:LCC_SERVER_URL,
   [switch]$Install,
-  [int]$IntervalSeconds = 20
+  [int]$IntervalSeconds = 10
 )
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.6.0'
+$script:AgentVersion = '1.7.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
-$PendingPath = Join-Path $ConfigDir 'pending-checkins.json'
+$PendingPath = Join-Path $ConfigDir 'pending\checkins.json'
 $AgentPath = Join-Path $ConfigDir 'lab-agent.ps1'
 $LockPath = Join-Path $ConfigDir 'agent.lock'
 $TaskName = 'LabCommandCenter Agent'
+$LogonTaskName = 'LabCommandCenter Logon'
 
 function Write-Log {
   param([string]$Message)
@@ -265,6 +267,8 @@ $script:MessageScriptPath = Join-Path $ConfigDir 'message.ps1'
 $script:CheckinScriptPath = Join-Path $ConfigDir 'checkin-gate.ps1'
 $script:ScreenshotScriptPath = Join-Path $ConfigDir 'capture-screenshot.ps1'
 $script:InputScriptPath = Join-Path $ConfigDir 'remote-input.ps1'
+$script:GateLauncherPath = Join-Path $ConfigDir 'gate-launcher.ps1'
+$script:GateMarkerPath = Join-Path $ConfigDir 'pending\gate-request'
 $script:lastWarningKey = $null
 $script:warningActive = $false
 $script:idleHelperLoaded = $false
@@ -569,6 +573,13 @@ $script:submitted = $false
 $script:photoFileId = ''
 $script:role = 'student'
 $script:idRequired = $true
+
+# Only one sign-in gate at a time.
+try {
+  $gateProcs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like '*checkin-gate.ps1*' -and $_.ProcessId -ne $PID })
+  if ($gateProcs.Count -gt 0) { exit 0 }
+} catch {}
 
 function Read-Token {
   try {
@@ -1010,6 +1021,14 @@ function Update-CheckinGate {
     $gateSession = ''
     if ($cfgNow -and $cfgNow.PSObject.Properties.Name -contains 'gateSession') { $gateSession = [string]$cfgNow.gateSession }
     $gateNeeded = $checkinRequired -or ($gateSession -ne $sessionToken)
+
+    # A logon launcher drops this marker so the gate appears right at PC
+    # startup without waiting for a session change. Consumed once so it
+    # cannot re-trigger the gate on later loop passes.
+    if (Test-Path -LiteralPath $script:GateMarkerPath) {
+      $gateNeeded = $true
+      Remove-Item -LiteralPath $script:GateMarkerPath -Force -ErrorAction SilentlyContinue
+    }
 
     $adminWindowsUser = ''
     if ($cfgNow -and $cfgNow.PSObject.Properties.Name -contains 'adminWindowsUser') { $adminWindowsUser = [string]$cfgNow.adminWindowsUser }
@@ -1814,6 +1833,7 @@ if ($Install) {
   }
   New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
   Copy-Item -LiteralPath $MyInvocation.MyCommand.Path -Destination $AgentPath -Force
+  Ensure-CheckinScript
   $taskCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $AgentPath -ServerUrl $ServerUrl"
   # The scheduled task may already exist (re-install) or not (first install);
   # schtasks returns a non-zero exit code in both cases, which under
@@ -1830,6 +1850,74 @@ if ($Install) {
       exit 1
     }
     & schtasks.exe /Run /TN $TaskName 2>$null | Out-Null
+
+    # Logon launcher: brings up the sign-in gate as soon as a user logs on so
+    # it appears at PC startup without waiting for the next agent pass.
+    $launcherContent = @'
+param(
+  [string]$ServerUrl,
+  [string]$ConfigPath,
+  [string]$GateScriptPath,
+  [string]$PendingPath,
+  [string]$ConfigDir
+)
+$ErrorActionPreference = 'Continue'
+$markerPath = Join-Path $ConfigDir 'pending\gate-request'
+
+$sessionToken = ''
+try {
+  $explorerProc = Get-CimInstance Win32_Process -Filter "Name = 'explorer.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.SessionId -ne 0 } | Select-Object -First 1
+  if ($explorerProc) { $sessionToken = $explorerProc.CreationDate.ToString('o') }
+} catch {}
+
+$cfg = $null
+if (Test-Path -LiteralPath $ConfigPath) {
+  try { $cfg = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json } catch {}
+}
+$checkinRequired = $false
+if ($cfg -and $cfg.PSObject.Properties.Name -contains 'lastCheckinRequired') { $checkinRequired = [bool]$cfg.lastCheckinRequired }
+$gateSession = ''
+if ($cfg -and $cfg.PSObject.Properties.Name -contains 'gateSession') { $gateSession = [string]$cfg.gateSession }
+$gateNeeded = $checkinRequired -or ($gateSession -ne $sessionToken)
+if (-not $gateNeeded) { exit 0 }
+
+try {
+  New-Item -ItemType Directory -Force -Path (Join-Path $ConfigDir 'pending') | Out-Null
+  Set-Content -LiteralPath $markerPath -Value (Get-Date).ToString('o') -Encoding UTF8 -ErrorAction SilentlyContinue
+} catch {}
+
+if ($cfg -and $sessionToken) {
+  try {
+    $cfg | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
+    $cfg | ConvertTo-Json -Compress -Depth 6 | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
+  } catch {}
+}
+
+try {
+  $already = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like '*checkin-gate.ps1*' -and $_.ProcessId -ne $PID })
+  if ($already.Count -eq 0) {
+    $user = (whoami 2>$null)
+    if (-not $user) { $user = $env:USERDOMAIN + '\' + $env:USERNAME }
+    $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -UserName "{3}" -PendingPath "{4}"' -f $GateScriptPath, $ServerUrl, $ConfigPath, ($user -replace '"', '""'), ($PendingPath -replace '"', '""')
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -WindowStyle Hidden
+  }
+} catch {}
+exit 0
+'@
+    Set-Content -LiteralPath $script:GateLauncherPath -Value $launcherContent -Encoding UTF8
+    $launcherCmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -GateScriptPath "{3}" -PendingPath "{4}" -ConfigDir "{5}"' -f $script:GateLauncherPath, $ServerUrl, $ConfigPath, $script:CheckinScriptPath, $script:PendingPath, $ConfigDir
+    $who = (whoami 2>$null)
+    if ($who) {
+      & schtasks.exe /Delete /TN $LogonTaskName /F 2>$null | Out-Null
+      & schtasks.exe /Create /TN $LogonTaskName /TR $launcherCmd /SC ONLOGON /RU $who /RL HIGHEST /IT /F 2>$null | Out-Null
+      if ($LASTEXITCODE -eq 0) {
+        Write-Log ('Logon task registered for {0} so the sign-in gate appears at every logon.' -f $who)
+      } else {
+        Write-Log 'Could not register the logon task; the agent will still show the gate after login.'
+      }
+    }
   } finally {
     $ErrorActionPreference = $prevEap
   }
@@ -1950,6 +2038,23 @@ try {
 
       # ---- sync check-ins saved while offline -------------------------------
       Sync-PendingCheckins
+
+      # ---- live remote view -----------------------------------------------
+      # While the server has a remote view/control session open for this PC
+      # (an operator is looking at or controlling it), stream a screenshot
+      # every pass so the dashboard shows a live preview instead of a single
+      # on-demand capture.
+      $script:remoteViewActive = $false
+      if ($hb -and $hb.computer -and $hb.computer.remoteViewActive) {
+        $script:remoteViewActive = [bool]$hb.computer.remoteViewActive
+      }
+      if ($script:remoteViewActive) {
+        $streamUser = Get-CurrentUser
+        $streamUserOk = ($streamUser -and -not ($streamUser -match '(?i)^nt authority\\') -and $streamUser -notmatch '\$$')
+        if ($streamUserOk) {
+          Capture-Screenshot | Out-Null
+        }
+      }
 
       # ---- USB handling ---------------------------------------------------
       $restrictive = ($hb.computer.usbState -eq 'blocked') -or ($hb.computer.usbState -eq 'review')
@@ -2138,7 +2243,11 @@ try {
       Update-CheckinGate -Hb $null
     }
 
-    Start-Sleep -Seconds $IntervalSeconds
+    if ($script:remoteViewActive) {
+      Start-Sleep -Seconds 2
+    } else {
+      Start-Sleep -Seconds $IntervalSeconds
+    }
   }
 } finally {
   Stop-PeripheralWarning

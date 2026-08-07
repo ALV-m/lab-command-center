@@ -696,7 +696,7 @@ function RemoteViewDialog({
   const { data, isFetching } = useGetLatestScreenshot(computer.id, {
     query: {
       queryKey: getLatestScreenshotQueryKey(computer.id),
-      refetchInterval: open ? (controlEnabled ? 2_000 : 5_000) : false,
+      refetchInterval: open ? 1_000 : false,
     },
   });
 
@@ -715,23 +715,32 @@ function RemoteViewDialog({
     queryClient.invalidateQueries({ queryKey: getLatestScreenshotQueryKey(computer.id) });
   }, [queryClient, computer.id]);
 
-  const requestShot = useCallback(() => {
-    actionMutation.mutate({
-      computerId: computer.id,
-      data: { action: ComputerActionInputAction.remote_view },
-    });
-    window.setTimeout(invalidateShot, 4_000);
-  }, [actionMutation, computer.id, invalidateShot]);
+  const requestShot = useCallback(
+    (notify = false) => {
+      actionMutation.mutate(
+        {
+          computerId: computer.id,
+          data: { action: ComputerActionInputAction.remote_view },
+        },
+        notify ? undefined : { onError: () => {} },
+      );
+      window.setTimeout(invalidateShot, 4_000);
+    },
+    [actionMutation, computer.id, invalidateShot],
+  );
 
   const sendInput = useCallback(
     (payload: RemoteInputPayload) => {
-      actionMutation.mutate({
-        computerId: computer.id,
-        data: {
-          action: ComputerActionInputAction.remote_input,
-          payload: JSON.stringify(payload),
+      actionMutation.mutate(
+        {
+          computerId: computer.id,
+          data: {
+            action: ComputerActionInputAction.remote_input,
+            payload: JSON.stringify(payload),
+          },
         },
-      });
+        { onError: () => {} },
+      );
     },
     [actionMutation, computer.id],
   );
@@ -744,6 +753,16 @@ function RemoteViewDialog({
       setCursor(null);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    // Start the remote session right away and keep it alive so the agent
+    // keeps streaming screenshots (the session expires ~45s after the last
+    // remote action, so re-request periodically while the dialog is open).
+    requestShot();
+    const keepAlive = window.setInterval(requestShot, 30_000);
+    return () => window.clearInterval(keepAlive);
+  }, [open, requestShot]);
 
   useEffect(() => {
     if (!open || !controlEnabled) return;
@@ -905,7 +924,7 @@ function RemoteViewDialog({
           <DialogTitle>Remote view & control — {computer.name}</DialogTitle>
           <DialogDescription>
             {shot
-              ? `Screen capture from ${formatDateTime(shot.takenAt)}. Input is relayed to the agent on its next check-in, so expect a short delay.`
+              ? `Live preview from ${formatDateTime(shot.takenAt)}. Input is relayed to the agent on its next poll, so expect a short delay.`
               : "No screenshot available yet. Request one below."}
           </DialogDescription>
         </DialogHeader>
@@ -930,7 +949,7 @@ function RemoteViewDialog({
               {keyboardEnabled ? "Keyboard on" : "Keyboard off"}
             </Button>
             <div className="flex-1" />
-            <Button variant="outline" size="sm" disabled={actionMutation.isPending} onClick={requestShot}>
+            <Button variant="outline" size="sm" disabled={actionMutation.isPending} onClick={() => requestShot(true)}>
               {actionMutation.isPending ? <Spinner className="size-4" /> : <Camera className="size-4" />}
               Capture fresh view
             </Button>
