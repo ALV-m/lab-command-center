@@ -1510,12 +1510,32 @@ if ($Install) {
   if ([string]::IsNullOrWhiteSpace($ServerUrl)) {
     throw 'Server URL is required with -Install: -Install -ServerUrl https://YOUR-APP.onrender.com'
   }
+  $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  if (-not $isAdmin) {
+    Write-Log 'Install requires an elevated PowerShell. Right-click PowerShell, choose "Run as administrator", then paste the command again.'
+    exit 1
+  }
   New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
   Copy-Item -LiteralPath $MyInvocation.MyCommand.Path -Destination $AgentPath -Force
-  & schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
   $taskCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $AgentPath -ServerUrl $ServerUrl"
-  & schtasks.exe /Create /TN $TaskName /TR $taskCmd /SC ONSTART /RU SYSTEM /RL HIGHEST /F | Out-Null
-  & schtasks.exe /Run /TN $TaskName | Out-Null
+  # The scheduled task may already exist (re-install) or not (first install);
+  # schtasks returns a non-zero exit code in both cases, which under
+  # $ErrorActionPreference='Stop' would abort the install. Run them with
+  # native-command errors suppressed and check the result explicitly.
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    & schtasks.exe /Delete /TN $TaskName /F 2>$null | Out-Null
+    $createOutput = & schtasks.exe /Create /TN $TaskName /TR $taskCmd /SC ONSTART /RU SYSTEM /RL HIGHEST /F 2>&1
+    if ($LASTEXITCODE -ne 0) {
+      $ErrorActionPreference = $prevEap
+      Write-Log ("Could not register the scheduled task: {0}" -f (($createOutput | Out-String).Trim()))
+      exit 1
+    }
+    & schtasks.exe /Run /TN $TaskName 2>$null | Out-Null
+  } finally {
+    $ErrorActionPreference = $prevEap
+  }
   Write-Log 'Installed as a SYSTEM boot task. The agent covers all users and starts before anyone logs in.'
   exit 0
 }

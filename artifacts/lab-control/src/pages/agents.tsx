@@ -49,8 +49,8 @@ function Agents() {
   const serverUrl = `${origin}${tenantApiPrefix().replace(/\/api$/, "")}`;
   const downloadPath = `${tenantApiPrefix()}/agent/download`;
   const downloadUrl = `${origin}${downloadPath}`;
-  const installCmd = `powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -ServerUrl ${serverUrl} -Install`;
-  const runCmd = `powershell -NoProfile -ExecutionPolicy Bypass -File lab-agent.ps1 -ServerUrl ${serverUrl}`;
+  const installCmd = `$s='${serverUrl}'; iwr "$s/api/agent/download" -OutFile "$env:TEMP\\lab-agent.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\\lab-agent.ps1" -ServerUrl $s -Install`;
+  const runCmd = `powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\\lab-agent.ps1" -ServerUrl ${serverUrl}`;
 
   const { data: settings } = useGetLabSettings({
     query: { queryKey: getLabSettingsQueryKey(), refetchInterval: 30_000 },
@@ -167,26 +167,33 @@ function Agents() {
             Quick setup on a lab PC
           </CardTitle>
           <CardDescription>
-            Requires Windows 10/11 and PowerShell 5.1+ — no other installs. The installed agent
-            starts at boot as SYSTEM, so it monitors and controls the PC for every user.
+            Requires Windows 10/11 and PowerShell 5.1+ — no other installs. Copy
+            this one command and paste it into an Administrator PowerShell on
+            each lab PC. It installs the agent as a SYSTEM boot task that starts
+            before anyone logs in.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <p className="text-sm font-medium">1. Download the script</p>
-            <CodeBlock>{downloadUrl}</CodeBlock>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm font-medium">2. Test run it</p>
-            <CodeBlock>{runCmd}</CodeBlock>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm font-medium">3. Install it to start at boot as SYSTEM (recommended)</p>
+            <p className="text-sm font-medium">Install (recommended)</p>
             <CodeBlock>{installCmd}</CodeBlock>
             <p className="text-xs text-muted-foreground">
-              Creates a scheduled task that runs at startup under the SYSTEM account, so password
-              monitoring, auto-login removal, and idle logout apply to every user on the PC.
+              Creates a scheduled task that runs at startup under the SYSTEM
+              account, so password monitoring, auto-login removal, and idle
+              logout apply to every user on the PC.
             </p>
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Test run (foreground)</p>
+            <CodeBlock>{runCmd}</CodeBlock>
+            <p className="text-xs text-muted-foreground">
+              Downloads the script first if needed, then runs it in the
+              foreground. Use this to try the agent before installing it.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Download the script only</p>
+            <CodeBlock>{downloadUrl}</CodeBlock>
           </div>
         </CardContent>
       </Card>
