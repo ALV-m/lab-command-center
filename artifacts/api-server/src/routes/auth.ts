@@ -81,8 +81,11 @@ router.post("/auth/logout", async (req, res): Promise<void> => {
 });
 
 // Everything from here on needs a valid dashboard session. `/users` and
-// `/auth/me` rely on `req.user`, which only `requireAuth` populates.
-router.use(requireAuth);
+// `/auth/me` rely on `req.user`, which only `requireAuth` populates. The
+// guard is scoped to these paths so it does not intercept the agent routes,
+// which are mounted alongside this router and authenticate via their token.
+router.use("/auth/me", requireAuth);
+router.use("/users", requireAuth);
 
 router.get("/auth/me", async (req, res): Promise<void> => {
   const user = req.user!;
