@@ -50,7 +50,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.8.0'
+$script:AgentVersion = '1.9.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $PendingPath = Join-Path $ConfigDir 'pending\checkins.json'
@@ -275,6 +275,7 @@ $script:InputScriptPath = Join-Path $ConfigDir 'remote-input.ps1'
 $script:GateLauncherPath = Join-Path $ConfigDir 'gate-launcher.ps1'
 $script:GateMarkerPath = Join-Path $ConfigDir 'pending\gate-request'
 $script:logonGateRegisteredFor = ''
+$script:lastGateRetryAt = $null
 $script:lastWarningKey = $null
 $script:warningActive = $false
 $script:idleHelperLoaded = $false
@@ -572,9 +573,23 @@ function Ensure-CheckinScript {
   $content = @'
 param([string]$ServerUrl = '', [string]$ConfigPath = '', [string]$UserName = '', [string]$PendingPath = '')
 $ErrorActionPreference = 'Stop'
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+$script:GateLogPath = Join-Path (Split-Path $ConfigPath -Parent) 'gate-log.txt'
+function Write-GateLog {
+  param([string]$Message)
+  try {
+    $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
+    Add-Content -LiteralPath $script:GateLogPath -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue
+  } catch {}
+}
+Write-GateLog ("gate start user={0} config={1}" -f $UserName, $ConfigPath)
+try {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  Add-Type -AssemblyName System.Windows.Forms
+  Add-Type -AssemblyName System.Drawing
+} catch {
+  Write-GateLog ("gate startup error: {0}" -f $_.Exception.Message)
+  exit 1
+}
 $script:submitted = $false
 $script:photoFileId = ''
 $script:role = 'student'
@@ -584,7 +599,7 @@ $script:idRequired = $true
 try {
   $gateProcs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -like '*checkin-gate.ps1*' -and $_.ProcessId -ne $PID })
-  if ($gateProcs.Count -gt 0) { exit 0 }
+  if ($gateProcs.Count -gt 0) { Write-GateLog 'gate start skipped (another gate is already running)'; exit 0 }
 } catch {}
 
 function Read-Token {
@@ -789,6 +804,7 @@ $adminLockButton.Width = 280
 $adminLockButton.Height = 46
 $adminLockButton.Margin = New-Object System.Windows.Forms.Padding(0, 10, 0, 0)
 $adminLockButton.Add_Click({
+  Write-GateLog 'admin lock requested'
   try {
     Start-Process -FilePath 'rundll32.exe' -ArgumentList 'user32.dll,LockWorkStation' -WindowStyle Hidden -ErrorAction SilentlyContinue
   } catch {}
@@ -913,9 +929,11 @@ $submit.Add_Click({
     $json = $body | ConvertTo-Json -Compress -Depth 4
     $resp = Invoke-RestMethod -Uri ('{0}/api/agent/checkin' -f $ServerUrl) -Method Post -ContentType 'application/json' -Body $json -TimeoutSec 60
     if ($resp.ok) {
+      Write-GateLog ("submitted role={0} name={1}" -f $script:role, $name)
       $script:submitted = $true
       $form.Close()
     } else {
+      Write-GateLog ("submit rejected: {0}" -f [string]$resp.error)
       $status.Text = [string]$resp.error
       $submit.Enabled = $true
     }
@@ -923,12 +941,14 @@ $submit.Add_Click({
     if ($PendingPath) {
       try {
         Save-PendingCheckin -Body $body
+        Write-GateLog 'offline check-in saved to pending queue'
         $status.Text = 'No internet — saved on this computer. It will sync to the dashboard automatically when back online.'
         $script:submitted = $true
         $form.Close()
         return
       } catch {}
     }
+    Write-GateLog ("submit error: {0}" -f $_.Exception.Message)
     $status.Text = 'Could not reach the server. Try again in a moment.'
     $submit.Enabled = $true
   }
@@ -937,7 +957,14 @@ $flow.Controls.Add($submit)
 
 Select-Role 'student'
 
-[System.Windows.Forms.Application]::Run($form)
+try {
+  Write-GateLog 'form running'
+  [System.Windows.Forms.Application]::Run($form)
+  Write-GateLog 'form closed'
+} catch {
+  Write-GateLog ("form error: {0}" -f $_.Exception.Message)
+  exit 1
+}
 '@
   Set-Content -LiteralPath $script:CheckinScriptPath -Value $content -Encoding UTF8
 }
@@ -963,10 +990,37 @@ function Stop-CheckinGate {
   } catch {}
 }
 
+function Start-GateTask {
+  # Runs the gate in a specific logged-on user's session via an interactive
+  # scheduled task. This is the most reliable way to show a WinForms form on
+  # the desktop when the agent runs as SYSTEM.
+  param([string]$UserName, [string]$ArgumentList)
+  if (-not $UserName) { return $false }
+  $taskName = 'LabCC-Gate-' + [Guid]::NewGuid().ToString('N')
+  $tr = '"powershell.exe" {0}' -f $ArgumentList
+  try {
+    & schtasks.exe /Create /TN $taskName /TR $tr /SC ONCE /ST 00:00 /RU $UserName /IT /RL HIGHEST /F 2>$null | Out-Null
+    Start-Sleep -Milliseconds 400
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+      & schtasks.exe /Run /TN $taskName 2>$null | Out-Null
+      if ($LASTEXITCODE -eq 0) { break }
+      Start-Sleep -Milliseconds 500
+    }
+    Start-Sleep -Milliseconds 800
+    & schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
+    return $true
+  } catch {}
+  return $false
+}
+
 function Show-CheckinGate {
   param([string]$UserName)
   Ensure-CheckinScript
   $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -UserName "{3}" -PendingPath "{4}"' -f $script:CheckinScriptPath, $ServerUrl, $ConfigPath, ($UserName -replace '"', '""'), ($PendingPath -replace '"', '""')
+  if ($UserName -and $UserName -notmatch '(?i)^nt authority\\') {
+    Start-GateTask -UserName $UserName -ArgumentList $argLine
+    return
+  }
   Invoke-Interactive -FilePath 'powershell.exe' -ArgumentList $argLine
 }
 
@@ -1000,6 +1054,9 @@ if ($cfg -and $cfg.PSObject.Properties.Name -contains 'lastCheckinRequired') { $
 $gateSession = ''
 if ($cfg -and $cfg.PSObject.Properties.Name -contains 'gateSession') { $gateSession = [string]$cfg.gateSession }
 $gateNeeded = $checkinRequired -or ($gateSession -ne $sessionToken)
+try {
+  Add-Content -LiteralPath (Join-Path $ConfigDir 'gate-log.txt') -Value ("[{0}] launcher ran user={1} sessionToken={2} gateSession={3} checkinRequired={4} gateNeeded={5}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $env:USERNAME, $sessionToken, $gateSession, $checkinRequired, $gateNeeded) -Encoding UTF8 -ErrorAction SilentlyContinue
+} catch {}
 if (-not $gateNeeded) { exit 0 }
 
 try {
@@ -1021,6 +1078,9 @@ try {
     $user = (whoami 2>$null)
     if (-not $user) { $user = $env:USERDOMAIN + '\' + $env:USERNAME }
     $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -UserName "{3}" -PendingPath "{4}"' -f $GateScriptPath, $ServerUrl, $ConfigPath, ($user -replace '"', '""'), ($PendingPath -replace '"', '""')
+    try {
+      Add-Content -LiteralPath (Join-Path $ConfigDir 'gate-log.txt') -Value ("[{0}] launcher starting gate for {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $user) -Encoding UTF8 -ErrorAction SilentlyContinue
+    } catch {}
     Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -WindowStyle Hidden
   }
 } catch {}
@@ -1161,8 +1221,16 @@ function Update-CheckinGate {
         $cfgNow | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
         Save-Config $cfgNow
         Write-Log ('Check-in gate shown for user {0}' -f $user)
+        $evBody = @{ token = $config.token; type = 'gate'; message = ('Check-in gate shown for {0} on {1}' -f $user, $env:COMPUTERNAME); detail = ('checkinRequired={0}' -f $checkinRequired) }
+        try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $evBody | Out-Null } catch {}
       } else {
         Write-Log ('Check-in gate launch did not take effect yet; will retry for {0}' -f $user)
+        $now = Get-Date
+        if (-not $script:lastGateRetryAt -or (($now - $script:lastGateRetryAt).TotalSeconds -ge 120)) {
+          $script:lastGateRetryAt = $now
+          $evBody = @{ token = $config.token; type = 'gate'; message = ('Check-in gate launch pending, will retry (user {0} on {1})' -f $user, $env:COMPUTERNAME); detail = ('gateNeeded={0} sessionToken={1} gateSession={2}' -f $gateNeeded, $sessionToken, $gateSession) }
+          try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $evBody | Out-Null } catch {}
+        }
       }
     }
   } catch {

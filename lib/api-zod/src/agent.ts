@@ -108,6 +108,7 @@ export const AgentEventBody = zod.object({
     "password_change",
     "password_reset",
     "autologon",
+    "gate",
   ]),
   message: zod.string().max(500).optional(),
   detail: zod.string().max(500).optional(),
