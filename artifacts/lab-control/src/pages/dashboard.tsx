@@ -1,12 +1,14 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import {
+  resolveTenantSlug,
   useGetComputers,
   useGetLabAlerts,
   useGetLabSummary,
 } from "@workspace/api-client-react";
-import { AlertTriangle, Monitor, ShieldAlert, Users, Wifi } from "lucide-react";
+import { AlertTriangle, Check, Copy, Monitor, ShieldAlert, Terminal, Users, Wifi } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip as ReTooltip } from "recharts";
+import { toast } from "sonner";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -56,10 +58,38 @@ function SummarySkeleton() {
   );
 }
 
+function CopyCommand({ children }: { children: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(children);
+    setCopied(true);
+    toast.success("Command copied to clipboard");
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <div className="relative rounded-lg bg-muted p-4 pr-12 font-mono text-sm">
+      <pre className="whitespace-pre-wrap break-all">{children}</pre>
+      <button
+        type="button"
+        onClick={copy}
+        className="absolute top-3 right-3 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        aria-label="Copy command"
+      >
+        {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+      </button>
+    </div>
+  );
+}
+
 function Dashboard() {
   const { data: summary, isLoading } = useGetLabSummary();
   const { data: computers, isLoading: computersLoading } = useGetComputers();
   const { data: alerts } = useGetLabAlerts();
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const slug = resolveTenantSlug() ?? "";
+  const serverUrl = `${origin}/t/${slug}`;
+  const installCmd = `$s='${serverUrl}'; iwr "$s/api/agent/download" -OutFile "$env:TEMP\\lab-agent.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\\lab-agent.ps1" -ServerUrl $s -Install`;
 
   const statusData = useMemo(() => {
     const counts: Record<string, number> = { online: 0, offline: 0, warning: 0, locked: 0 };
@@ -81,6 +111,23 @@ function Dashboard() {
           Live status across the computer lab.
         </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Terminal className="size-4" />
+            Install agent on a lab PC
+          </CardTitle>
+          <CardDescription>
+            Copy this one command and paste it into an Administrator PowerShell
+            on each lab PC. It installs the agent as a SYSTEM boot task that
+            covers every user.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <CopyCommand>{installCmd}</CopyCommand>
+        </CardContent>
+      </Card>
 
       {isLoading ? (
         <SummarySkeleton />
