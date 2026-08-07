@@ -62,6 +62,8 @@ export const AgentPendingAction = zod.object({
 
 export const AgentHeartbeatResponse = zod.object({
   serverTime: zod.string(),
+  latestAgentVersion: zod.string().nullish(),
+  agentUpdateRequested: zod.boolean().default(false),
   computer: zod.object({
     id: zod.number(),
     name: zod.string(),
@@ -109,6 +111,7 @@ export const AgentEventBody = zod.object({
     "password_reset",
     "autologon",
     "gate",
+    "agent_update",
   ]),
   message: zod.string().max(500).optional(),
   detail: zod.string().max(500).optional(),

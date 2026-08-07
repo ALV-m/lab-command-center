@@ -50,7 +50,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.9.0'
+$script:AgentVersion = '1.10.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $PendingPath = Join-Path $ConfigDir 'pending\checkins.json'
@@ -276,6 +276,7 @@ $script:GateLauncherPath = Join-Path $ConfigDir 'gate-launcher.ps1'
 $script:GateMarkerPath = Join-Path $ConfigDir 'pending\gate-request'
 $script:logonGateRegisteredFor = ''
 $script:lastGateRetryAt = $null
+$script:lastUpdateAttemptAt = $null
 $script:lastWarningKey = $null
 $script:warningActive = $false
 $script:idleHelperLoaded = $false
@@ -1135,6 +1136,68 @@ function Sync-PendingCheckins {
     if ($synced -gt 0) { Write-Log ('Synced {0} offline check-in(s) to the dashboard.' -f $synced) }
   } catch {
     Write-Log ('Pending check-in sync failed: {0}' -f $_.Exception.Message)
+  }
+}
+
+function Update-Self {
+  # Downloads the agent script served by the server and replaces this copy when
+  # a newer version is available, so agents pick up updates automatically
+  # without being reinstalled. Runs from the main loop when the server's
+  # heartbeat says an update is required. The current process hands off to a
+  # fresh process running the new script and exits.
+  param([string]$LatestVersion)
+  if (-not $LatestVersion) { return }
+  if ($LatestVersion -eq $script:AgentVersion) { return }
+  $now = Get-Date
+  if ($script:lastUpdateAttemptAt -and (($now - $script:lastUpdateAttemptAt).TotalMinutes -lt 5)) { return }
+  $script:lastUpdateAttemptAt = $now
+  $tmp = Join-Path $ConfigDir 'lab-agent.update.ps1'
+  $backup = $AgentPath + '.bak'
+  try {
+    Invoke-WebRequest -Uri ($ServerUrl + '/api/agent/download') -OutFile $tmp -UseBasicParsing -TimeoutSec 120 | Out-Null
+    $tokens = $null
+    $errors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($tmp, [ref]$tokens, [ref]$errors) | Out-Null
+    if ($errors.Count -gt 0) {
+      throw ('downloaded agent failed the PowerShell syntax check ({0} error(s))' -f $errors.Count)
+    }
+    $newVer = $null
+    foreach ($line in (Get-Content -LiteralPath $tmp -TotalCount 150 -ErrorAction Stop)) {
+      if ($line -match '\$script:AgentVersion\s*=\s*''([^'']+)''') { $newVer = $Matches[1]; break }
+    }
+    if (-not $newVer) { throw 'downloaded agent has no version marker' }
+    if ($newVer -eq $script:AgentVersion) {
+      # Server advertises a newer version but is still serving our build; skip
+      # this round instead of re-downloading every pass.
+      Write-Log ('Agent download served v{0} (same as running); skipping update.' -f $newVer)
+      Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+      return
+    }
+    if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue }
+    Copy-Item -LiteralPath $AgentPath -Destination $backup -Force
+    Copy-Item -LiteralPath $tmp -Destination $AgentPath -Force
+    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    Write-Log ('Agent self-updated v{0} -> v{1}.' -f $script:AgentVersion, $newVer)
+    try {
+      Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body @{
+        token = $config.token
+        type = 'agent_update'
+        message = ('Agent updated to v{0} on {1}' -f $newVer, $env:COMPUTERNAME)
+        detail = ('previous={0}' -f $script:AgentVersion)
+      } | Out-Null
+    } catch {}
+    # Release the single-instance lock, start the freshly installed script, and
+    # exit so the new version takes over without a reboot or reinstall.
+    Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
+    Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}"' -f $AgentPath, $ServerUrl) -WindowStyle Hidden
+    exit 0
+  } catch {
+    Write-Log ('Agent self-update failed: {0}' -f $_.Exception.Message)
+    if (Test-Path -LiteralPath $backup) {
+      Copy-Item -LiteralPath $backup -Destination $AgentPath -Force
+      Write-Log 'Restored the previous agent version after the update failed.'
+    }
+    Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -2115,6 +2178,14 @@ try {
         foreach ($action in $hb.pendingActions) {
           Execute-Action $action
         }
+      }
+
+      # ---- agent self-update ----------------------------------------------
+      # The server advertises the agent version bundled with its build; when it
+      # is newer than the version this copy reports, download and replace
+      # ourselves in place so no reinstall is ever needed again.
+      if ($hb.agentUpdateRequested -and $hb.latestAgentVersion) {
+        Update-Self -LatestVersion ([string]$hb.latestAgentVersion)
       }
 
       # ---- sign-in method (auto-login) --------------------------------------
