@@ -50,7 +50,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.7.0'
+$script:AgentVersion = '1.8.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $PendingPath = Join-Path $ConfigDir 'pending\checkins.json'
@@ -177,7 +177,12 @@ function Invoke-Interactive {
   $tr = '"{0}" {1}' -f $FilePath, $ArgumentList
   try {
     & schtasks.exe /Create /TN $taskName /TR $tr /SC ONCE /ST 00:00 /RU SYSTEM /IT /RL HIGHEST /F 2>$null | Out-Null
-    & schtasks.exe /Run /TN $taskName 2>$null | Out-Null
+    Start-Sleep -Milliseconds 400
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+      & schtasks.exe /Run /TN $taskName 2>$null | Out-Null
+      if ($LASTEXITCODE -eq 0) { break }
+      Start-Sleep -Milliseconds 500
+    }
     Start-Sleep -Milliseconds 800
     & schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
   } catch {}
@@ -269,6 +274,7 @@ $script:ScreenshotScriptPath = Join-Path $ConfigDir 'capture-screenshot.ps1'
 $script:InputScriptPath = Join-Path $ConfigDir 'remote-input.ps1'
 $script:GateLauncherPath = Join-Path $ConfigDir 'gate-launcher.ps1'
 $script:GateMarkerPath = Join-Path $ConfigDir 'pending\gate-request'
+$script:logonGateRegisteredFor = ''
 $script:lastWarningKey = $null
 $script:warningActive = $false
 $script:idleHelperLoaded = $false
@@ -964,6 +970,89 @@ function Show-CheckinGate {
   Invoke-Interactive -FilePath 'powershell.exe' -ArgumentList $argLine
 }
 
+function Ensure-GateLauncher {
+  # Logon launcher: brings up the sign-in gate as soon as a user logs on so
+  # it appears at PC startup without waiting for the next agent pass.
+  $content = @'
+param(
+  [string]$ServerUrl,
+  [string]$ConfigPath,
+  [string]$GateScriptPath,
+  [string]$PendingPath,
+  [string]$ConfigDir
+)
+$ErrorActionPreference = 'Continue'
+$markerPath = Join-Path $ConfigDir 'pending\gate-request'
+
+$sessionToken = ''
+try {
+  $explorerProc = Get-CimInstance Win32_Process -Filter "Name = 'explorer.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.SessionId -ne 0 } | Select-Object -First 1
+  if ($explorerProc) { $sessionToken = $explorerProc.CreationDate.ToString('o') }
+} catch {}
+
+$cfg = $null
+if (Test-Path -LiteralPath $ConfigPath) {
+  try { $cfg = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json } catch {}
+}
+$checkinRequired = $false
+if ($cfg -and $cfg.PSObject.Properties.Name -contains 'lastCheckinRequired') { $checkinRequired = [bool]$cfg.lastCheckinRequired }
+$gateSession = ''
+if ($cfg -and $cfg.PSObject.Properties.Name -contains 'gateSession') { $gateSession = [string]$cfg.gateSession }
+$gateNeeded = $checkinRequired -or ($gateSession -ne $sessionToken)
+if (-not $gateNeeded) { exit 0 }
+
+try {
+  New-Item -ItemType Directory -Force -Path (Join-Path $ConfigDir 'pending') | Out-Null
+  Set-Content -LiteralPath $markerPath -Value (Get-Date).ToString('o') -Encoding UTF8 -ErrorAction SilentlyContinue
+} catch {}
+
+if ($cfg -and $sessionToken) {
+  try {
+    $cfg | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
+    $cfg | ConvertTo-Json -Compress -Depth 6 | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
+  } catch {}
+}
+
+try {
+  $already = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like '*checkin-gate.ps1*' -and $_.ProcessId -ne $PID })
+  if ($already.Count -eq 0) {
+    $user = (whoami 2>$null)
+    if (-not $user) { $user = $env:USERDOMAIN + '\' + $env:USERNAME }
+    $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -UserName "{3}" -PendingPath "{4}"' -f $GateScriptPath, $ServerUrl, $ConfigPath, ($user -replace '"', '""'), ($PendingPath -replace '"', '""')
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -WindowStyle Hidden
+  }
+} catch {}
+exit 0
+'@
+  Set-Content -LiteralPath $script:GateLauncherPath -Value $content -Encoding UTF8
+}
+
+function Register-LogonGate {
+  # Registers (or refreshes) the ONLOGON task that brings the sign-in gate up
+  # right when a specific user logs on. This is how the shared auto-login
+  # account lands directly on the login form at every boot instead of the
+  # Windows login page. Re-registering is cheap and idempotent, so we skip it
+  # when the task is already registered for the same user.
+  param([string]$UserName)
+  if (-not $UserName) { return $false }
+  if ($script:logonGateRegisteredFor -eq $UserName) { return $true }
+  try {
+    Ensure-GateLauncher
+    $launcherCmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -GateScriptPath "{3}" -PendingPath "{4}" -ConfigDir "{5}"' -f $script:GateLauncherPath, $ServerUrl, $ConfigPath, $script:CheckinScriptPath, $script:PendingPath, $ConfigDir
+    & schtasks.exe /Delete /TN $LogonTaskName /F 2>$null | Out-Null
+    & schtasks.exe /Create /TN $LogonTaskName /TR $launcherCmd /SC ONLOGON /RU $UserName /RL HIGHEST /IT /F 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+      $script:logonGateRegisteredFor = $UserName
+      Write-Log ('Logon gate registered for {0} so the sign-in gate appears at every logon.' -f $UserName)
+      return $true
+    }
+    Write-Log ('Could not register the logon gate for {0}; the agent will still show the gate after login.' -f $UserName)
+  } catch {}
+  return $false
+}
+
 function Sync-PendingCheckins {
   if (-not (Test-Path -LiteralPath $PendingPath)) { return }
   try {
@@ -1055,11 +1144,26 @@ function Update-CheckinGate {
       } catch {
         Write-Log ('Administrator check-in failed: {0}' -f $_.Exception.Message)
       }
-    } elseif ($gateNeeded -and -not (Get-CheckinGateRunning)) {
-      Show-CheckinGate -UserName $user
+    } elseif ($gateNeeded -and (Get-CheckinGateRunning)) {
+      # The gate is already up (started by the logon launcher or a previous
+      # attempt). Remember the session so it is not re-shown right after this
+      # one is submitted.
       $cfgNow | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
       Save-Config $cfgNow
-      Write-Log ('Check-in gate shown for user {0}' -f $user)
+    } elseif ($gateNeeded) {
+      Show-CheckinGate -UserName $user
+      # Give the gate a moment to come up. Only remember the session as
+      # "gated" once a checkin-gate process is actually running, so a launch
+      # that did not take effect (desktop still starting, task race) is retried
+      # on the next pass instead of being marked as shown and never appearing.
+      Start-Sleep -Seconds 3
+      if (Get-CheckinGateRunning) {
+        $cfgNow | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
+        Save-Config $cfgNow
+        Write-Log ('Check-in gate shown for user {0}' -f $user)
+      } else {
+        Write-Log ('Check-in gate launch did not take effect yet; will retry for {0}' -f $user)
+      }
     }
   } catch {
     Write-Log ('Check-in gate update failed: {0}' -f $_.Exception.Message)
@@ -1623,6 +1727,9 @@ function Apply-SigninMethod {
       $enabled = Set-SharedAutoLogon -UserName $user -Password $pass
       $cfg | Add-Member -NotePropertyName autoLogonCleaned -NotePropertyValue $false -Force
       Save-Config $cfg
+      # The shared account auto-logs in at boot, so its ONLOGON task is what
+      # brings the login form up directly instead of the Windows login page.
+      Register-LogonGate -UserName $user
       if ($enabled) {
         $body = @{ token = $cfg.token; type = 'autologon'; message = 'Auto-login enabled on {0}' -f $env:COMPUTERNAME; detail = ('Auto-login set for {0}' -f $user) }
         try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $body | Out-Null } catch {}
@@ -1852,72 +1959,13 @@ if ($Install) {
     & schtasks.exe /Run /TN $TaskName 2>$null | Out-Null
 
     # Logon launcher: brings up the sign-in gate as soon as a user logs on so
-    # it appears at PC startup without waiting for the next agent pass.
-    $launcherContent = @'
-param(
-  [string]$ServerUrl,
-  [string]$ConfigPath,
-  [string]$GateScriptPath,
-  [string]$PendingPath,
-  [string]$ConfigDir
-)
-$ErrorActionPreference = 'Continue'
-$markerPath = Join-Path $ConfigDir 'pending\gate-request'
-
-$sessionToken = ''
-try {
-  $explorerProc = Get-CimInstance Win32_Process -Filter "Name = 'explorer.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.SessionId -ne 0 } | Select-Object -First 1
-  if ($explorerProc) { $sessionToken = $explorerProc.CreationDate.ToString('o') }
-} catch {}
-
-$cfg = $null
-if (Test-Path -LiteralPath $ConfigPath) {
-  try { $cfg = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json } catch {}
-}
-$checkinRequired = $false
-if ($cfg -and $cfg.PSObject.Properties.Name -contains 'lastCheckinRequired') { $checkinRequired = [bool]$cfg.lastCheckinRequired }
-$gateSession = ''
-if ($cfg -and $cfg.PSObject.Properties.Name -contains 'gateSession') { $gateSession = [string]$cfg.gateSession }
-$gateNeeded = $checkinRequired -or ($gateSession -ne $sessionToken)
-if (-not $gateNeeded) { exit 0 }
-
-try {
-  New-Item -ItemType Directory -Force -Path (Join-Path $ConfigDir 'pending') | Out-Null
-  Set-Content -LiteralPath $markerPath -Value (Get-Date).ToString('o') -Encoding UTF8 -ErrorAction SilentlyContinue
-} catch {}
-
-if ($cfg -and $sessionToken) {
-  try {
-    $cfg | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
-    $cfg | ConvertTo-Json -Compress -Depth 6 | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
-  } catch {}
-}
-
-try {
-  $already = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like '*checkin-gate.ps1*' -and $_.ProcessId -ne $PID })
-  if ($already.Count -eq 0) {
-    $user = (whoami 2>$null)
-    if (-not $user) { $user = $env:USERDOMAIN + '\' + $env:USERNAME }
-    $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -UserName "{3}" -PendingPath "{4}"' -f $GateScriptPath, $ServerUrl, $ConfigPath, ($user -replace '"', '""'), ($PendingPath -replace '"', '""')
-    Start-Process -FilePath 'powershell.exe' -ArgumentList $argLine -WindowStyle Hidden
-  }
-} catch {}
-exit 0
-'@
-    Set-Content -LiteralPath $script:GateLauncherPath -Value $launcherContent -Encoding UTF8
-    $launcherCmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -GateScriptPath "{3}" -PendingPath "{4}" -ConfigDir "{5}"' -f $script:GateLauncherPath, $ServerUrl, $ConfigPath, $script:CheckinScriptPath, $script:PendingPath, $ConfigDir
+    # it appears at PC startup without waiting for the next agent pass. It is
+    # registered for the user running the install; once the sign-in method is
+    # "login form instead of password", Apply-SigninMethod re-registers it for
+    # the shared auto-login account so the gate is the first thing at boot.
+    Ensure-GateLauncher
     $who = (whoami 2>$null)
-    if ($who) {
-      & schtasks.exe /Delete /TN $LogonTaskName /F 2>$null | Out-Null
-      & schtasks.exe /Create /TN $LogonTaskName /TR $launcherCmd /SC ONLOGON /RU $who /RL HIGHEST /IT /F 2>$null | Out-Null
-      if ($LASTEXITCODE -eq 0) {
-        Write-Log ('Logon task registered for {0} so the sign-in gate appears at every logon.' -f $who)
-      } else {
-        Write-Log 'Could not register the logon task; the agent will still show the gate after login.'
-      }
-    }
+    if ($who) { Register-LogonGate -UserName $who }
   } finally {
     $ErrorActionPreference = $prevEap
   }
