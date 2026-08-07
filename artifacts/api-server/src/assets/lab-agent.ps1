@@ -49,9 +49,10 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.5.0'
+$script:AgentVersion = '1.6.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
+$PendingPath = Join-Path $ConfigDir 'pending-checkins.json'
 $AgentPath = Join-Path $ConfigDir 'lab-agent.ps1'
 $LockPath = Join-Path $ConfigDir 'agent.lock'
 $TaskName = 'LabCommandCenter Agent'
@@ -559,7 +560,7 @@ function Capture-Screenshot {
 
 function Ensure-CheckinScript {
   $content = @'
-param([string]$ServerUrl = '', [string]$ConfigPath = '', [string]$UserName = '')
+param([string]$ServerUrl = '', [string]$ConfigPath = '', [string]$UserName = '', [string]$PendingPath = '')
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Add-Type -AssemblyName System.Windows.Forms
@@ -585,6 +586,23 @@ function Upload-Photo {
     $resp = Invoke-RestMethod -Uri $url -Method Post -InFile $Path -ContentType 'image/jpeg' -TimeoutSec 60
     return [string]$resp.fileId
   } catch { return '' }
+}
+
+function Save-PendingCheckin {
+  param([hashtable]$Body)
+  if (-not $PendingPath) { return }
+  $entry = $Body.Clone()
+  $entry.savedAt = (Get-Date).ToString('o')
+  $list = @()
+  if (Test-Path -LiteralPath $PendingPath) {
+    try {
+      $existing = Get-Content -LiteralPath $PendingPath -Raw | ConvertFrom-Json
+      if ($existing) { $list = @($existing) }
+    } catch { $list = @() }
+  }
+  $list += $entry
+  New-Item -ItemType Directory -Force -Path (Split-Path $PendingPath -Parent) | Out-Null
+  $list | ConvertTo-Json -Compress -Depth 5 | Set-Content -LiteralPath $PendingPath -Encoding UTF8
 }
 
 $form = New-Object System.Windows.Forms.Form
@@ -885,6 +903,15 @@ $submit.Add_Click({
       $submit.Enabled = $true
     }
   } catch {
+    if ($PendingPath) {
+      try {
+        Save-PendingCheckin -Body $body
+        $status.Text = 'No internet — saved on this computer. It will sync to the dashboard automatically when back online.'
+        $script:submitted = $true
+        $form.Close()
+        return
+      } catch {}
+    }
     $status.Text = 'Could not reach the server. Try again in a moment.'
     $submit.Enabled = $true
   }
@@ -922,8 +949,102 @@ function Stop-CheckinGate {
 function Show-CheckinGate {
   param([string]$UserName)
   Ensure-CheckinScript
-  $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -UserName "{3}"' -f $script:CheckinScriptPath, $ServerUrl, $ConfigPath, ($UserName -replace '"', '""')
+  $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -UserName "{3}" -PendingPath "{4}"' -f $script:CheckinScriptPath, $ServerUrl, $ConfigPath, ($UserName -replace '"', '""'), ($PendingPath -replace '"', '""')
   Invoke-Interactive -FilePath 'powershell.exe' -ArgumentList $argLine
+}
+
+function Sync-PendingCheckins {
+  if (-not (Test-Path -LiteralPath $PendingPath)) { return }
+  try {
+    $queue = Get-Content -LiteralPath $PendingPath -Raw | ConvertFrom-Json
+    if (-not $queue -or @($queue).Count -eq 0) { return }
+    $remaining = @()
+    $synced = 0
+    foreach ($entry in @($queue)) {
+      try {
+        $resp = Invoke-ApiJson -Method 'POST' -Path '/api/agent/checkin' -Body $entry
+        if ($resp.ok) { $synced++; continue }
+      } catch {}
+      $remaining += $entry
+    }
+    if ($remaining.Count -eq 0) {
+      Remove-Item -LiteralPath $PendingPath -Force -ErrorAction SilentlyContinue
+    } else {
+      $remaining | ConvertTo-Json -Compress -Depth 6 | Set-Content -LiteralPath $PendingPath -Encoding UTF8
+    }
+    if ($synced -gt 0) { Write-Log ('Synced {0} offline check-in(s) to the dashboard.' -f $synced) }
+  } catch {
+    Write-Log ('Pending check-in sync failed: {0}' -f $_.Exception.Message)
+  }
+}
+
+function Update-CheckinGate {
+  # Decides whether the sign-in gate must be shown. Works even when the server
+  # is unreachable by using the last known check-in requirement cached locally.
+  param($Hb)
+  try {
+    $user = Get-CurrentUser
+    $isSystemUser = ($user -match '(?i)^nt authority\\') -or ($user -match '\$$')
+    if (-not $user -or $isSystemUser) { return }
+
+    $cfgNow = Get-Config
+
+    # Cache the server's check-in requirement so the gate can appear offline.
+    if ($cfgNow -and $Hb -and $null -ne $Hb.computer.checkinRequired) {
+      $cfgNow | Add-Member -NotePropertyName lastCheckinRequired -NotePropertyValue ([bool]$Hb.computer.checkinRequired) -Force
+      Save-Config $cfgNow
+    }
+    $checkinRequired = $false
+    if ($Hb -and $null -ne $Hb.computer.checkinRequired) {
+      $checkinRequired = [bool]$Hb.computer.checkinRequired
+    } elseif ($cfgNow -and $cfgNow.PSObject.Properties.Name -contains 'lastCheckinRequired') {
+      $checkinRequired = [bool]$cfgNow.lastCheckinRequired
+    }
+
+    $sessionToken = ''
+    try {
+      $explorerProc = Get-CimInstance Win32_Process -Filter "Name = 'explorer.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.SessionId -ne 0 } | Select-Object -First 1
+      if ($explorerProc) { $sessionToken = $explorerProc.CreationDate.ToString('o') }
+    } catch {}
+    $gateSession = ''
+    if ($cfgNow -and $cfgNow.PSObject.Properties.Name -contains 'gateSession') { $gateSession = [string]$cfgNow.gateSession }
+    $gateNeeded = $checkinRequired -or ($gateSession -ne $sessionToken)
+
+    $adminWindowsUser = ''
+    if ($cfgNow -and $cfgNow.PSObject.Properties.Name -contains 'adminWindowsUser') { $adminWindowsUser = [string]$cfgNow.adminWindowsUser }
+    $adminSession = $false
+    if ($adminWindowsUser) {
+      $consoleName = $user
+      if ($consoleName -match '\\(?<name>[^\\]+)$') { $consoleName = $Matches['name'] }
+      $adminName = $adminWindowsUser
+      if ($adminName -match '\\(?<name>[^\\]+)$') { $adminName = $Matches['name'] }
+      if ($adminName -and $adminName -ieq $consoleName) { $adminSession = $true }
+    }
+
+    if ($gateNeeded -and $adminSession) {
+      try {
+        $body = @{ token = $config.token; userName = $user; role = 'admin'; studentName = $user }
+        $resp = Invoke-ApiJson -Method 'POST' -Path '/api/agent/checkin' -Body $body
+        if ($resp.ok) {
+          $cfgNow | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
+          Save-Config $cfgNow
+          Write-Log ('Administrator check-in recorded for {0}' -f $user)
+        } else {
+          Write-Log ('Administrator check-in rejected: {0}' -f $resp.error)
+        }
+      } catch {
+        Write-Log ('Administrator check-in failed: {0}' -f $_.Exception.Message)
+      }
+    } elseif ($gateNeeded -and -not (Get-CheckinGateRunning)) {
+      Show-CheckinGate -UserName $user
+      $cfgNow | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
+      Save-Config $cfgNow
+      Write-Log ('Check-in gate shown for user {0}' -f $user)
+    }
+  } catch {
+    Write-Log ('Check-in gate update failed: {0}' -f $_.Exception.Message)
+  }
 }
 
 function Set-DownloadBlock {
@@ -1825,49 +1946,10 @@ try {
       }
 
       # ---- check-in gate -----------------------------------------------------
-      $isSystemUser = ($user -match '(?i)^nt authority\\') -or ($user -match '\$$')
-      if ($user -and -not $isSystemUser) {
-        $cfgNow = Get-Config
-        $sessionToken = ''
-        try {
-          $explorerProc = Get-CimInstance Win32_Process -Filter "Name = 'explorer.exe'" -ErrorAction SilentlyContinue |
-            Where-Object { $_.SessionId -ne 0 } | Select-Object -First 1
-          if ($explorerProc) { $sessionToken = $explorerProc.CreationDate.ToString('o') }
-        } catch {}
-        $gateSession = ''
-        if ($cfgNow.PSObject.Properties.Name -contains 'gateSession') { $gateSession = [string]$cfgNow.gateSession }
-        $gateNeeded = ($hb.computer.checkinRequired -eq $true) -or ($gateSession -ne $sessionToken)
-        $adminWindowsUser = ''
-        if ($cfgNow.PSObject.Properties.Name -contains 'adminWindowsUser') { $adminWindowsUser = [string]$cfgNow.adminWindowsUser }
-        $adminSession = $false
-        if ($adminWindowsUser) {
-          $consoleName = $user
-          if ($consoleName -match '\\(?<name>[^\\]+)$') { $consoleName = $Matches['name'] }
-          $adminName = $adminWindowsUser
-          if ($adminName -match '\\(?<name>[^\\]+)$') { $adminName = $Matches['name'] }
-          if ($adminName -and $adminName -ieq $consoleName) { $adminSession = $true }
-        }
-        if ($gateNeeded -and $adminSession) {
-          try {
-            $body = @{ token = $config.token; userName = $user; role = 'admin'; studentName = $user }
-            $resp = Invoke-ApiJson -Method 'POST' -Path '/api/agent/checkin' -Body $body
-            if ($resp.ok) {
-              $cfgNow | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
-              Save-Config $cfgNow
-              Write-Log ('Administrator check-in recorded for {0}' -f $user)
-            } else {
-              Write-Log ('Administrator check-in rejected: {0}' -f $resp.error)
-            }
-          } catch {
-            Write-Log ('Administrator check-in failed: {0}' -f $_.Exception.Message)
-          }
-        } elseif ($gateNeeded -and -not (Get-CheckinGateRunning)) {
-          Show-CheckinGate -UserName $user
-          $cfgNow | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
-          Save-Config $cfgNow
-          Write-Log ('Check-in gate shown for user {0}' -f $user)
-        }
-      }
+      Update-CheckinGate -Hb $hb
+
+      # ---- sync check-ins saved while offline -------------------------------
+      Sync-PendingCheckins
 
       # ---- USB handling ---------------------------------------------------
       $restrictive = ($hb.computer.usbState -eq 'blocked') -or ($hb.computer.usbState -eq 'review')
@@ -2051,6 +2133,9 @@ try {
       } else {
         Write-Log ('Heartbeat failed: {0}' -f $_.Exception.Message)
       }
+      # Keep the sign-in gate working while offline (uses the last known
+      # check-in requirement cached locally).
+      Update-CheckinGate -Hb $null
     }
 
     Start-Sleep -Seconds $IntervalSeconds
