@@ -61,6 +61,7 @@ const mapComputer = (computer: typeof computersTable.$inferSelect) => ({
   userName: computer.userName,
   lastSeen: iso(computer.lastSeen) as string,
   os: computer.os,
+  agentVersion: computer.agentVersion,
   usbState: computer.usbState,
   peripherals: { keyboard: computer.keyboard, mouse: computer.mouse },
   avEnabled: computer.avEnabled,

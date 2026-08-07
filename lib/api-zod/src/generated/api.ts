@@ -41,6 +41,7 @@ export const GetComputersResponseItem = zod.object({
   "userName": zod.string().nullable(),
   "lastSeen": zod.string(),
   "os": zod.string(),
+  "agentVersion": zod.string().nullable(),
   "usbState": zod.enum(['blocked', 'allowed', 'review']),
   "peripherals": zod.object({
   "keyboard": zod.boolean(),

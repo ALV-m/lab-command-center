@@ -51,6 +51,8 @@ export interface Computer {
   userName: string | null;
   lastSeen: string;
   os: string;
+  /** @nullable */
+  agentVersion: string | null;
   usbState: ComputerUsbState;
   peripherals: ComputerPeripherals;
   /** @nullable */

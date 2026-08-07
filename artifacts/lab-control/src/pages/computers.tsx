@@ -276,7 +276,12 @@ function Computers() {
                       </div>
                       <div>
                         <p className="font-medium">{computer.name}</p>
-                        <p className="text-xs text-muted-foreground">{computer.room}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {computer.room}
+                          {computer.agentVersion
+                            ? ` · agent v${computer.agentVersion}`
+                            : ""}
+                        </p>
                       </div>
                     </div>
                   </TableCell>
