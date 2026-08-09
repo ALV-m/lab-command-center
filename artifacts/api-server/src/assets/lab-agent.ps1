@@ -50,7 +50,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.11.0'
+$script:AgentVersion = '1.11.1'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $PendingPath = Join-Path $ConfigDir 'pending\checkins.json'
@@ -159,10 +159,16 @@ function Get-CurrentUser {
 }
 
 function Invoke-Interactive {
-  # Run a command on the interactive desktop. Under SYSTEM this uses a
-  # temporary interactive scheduled task; otherwise it starts the process
-  # directly.
+  # Run a command in the logged-on user's interactive desktop. Under SYSTEM
+  # this uses a temporary interactive scheduled task bound to the current user
+  # (registered with the ScheduledTasks cmdlets, which encode the command line
+  # correctly in the task XML); otherwise it starts the process directly.
   param([string]$FilePath, [string]$ArgumentList = '')
+  $user = Get-CurrentUser
+  if (-not $user -or $user -match '(?i)^nt authority\\' -or $user -match '\$$') {
+    Write-Log 'No interactive user session; skipping interactive action.'
+    return
+  }
   if (-not (Get-IsSystem)) {
     try {
       if ($ArgumentList) {
@@ -174,9 +180,22 @@ function Invoke-Interactive {
     return
   }
   $taskName = 'LabCC-Interactive-' + [Guid]::NewGuid().ToString('N')
-  $tr = '"{0}" {1}' -f $FilePath, $ArgumentList
   try {
-    & schtasks.exe /Create /TN $taskName /TR $tr /SC ONCE /ST 00:00 /RU SYSTEM /IT /RL HIGHEST /F 2>$null | Out-Null
+    try {
+      $action = New-ScheduledTaskAction -Execute $FilePath -Argument $ArgumentList
+      $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date)
+      $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
+      $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+      Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
+      Start-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+      Start-Sleep -Seconds 2
+      Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+      return
+    } catch {
+      Write-Log ('Interactive task failed for {0} ({1}); trying schtasks.exe.' -f $user, $_.Exception.Message)
+    }
+    $tr = '"{0}" {1}' -f $FilePath, $ArgumentList
+    & schtasks.exe /Create /TN $taskName /TR $tr /SC ONCE /ST 00:00 /RU $user /IT /RL HIGHEST /F 2>$null | Out-Null
     Start-Sleep -Milliseconds 400
     for ($attempt = 0; $attempt -lt 3; $attempt++) {
       & schtasks.exe /Run /TN $taskName 2>$null | Out-Null
@@ -277,6 +296,7 @@ $script:GateMarkerPath = Join-Path $ConfigDir 'pending\gate-request'
 $script:logonGateRegisteredFor = ''
 $script:lastGateRetryAt = $null
 $script:lastUpdateAttemptAt = $null
+$script:lastGateTaskError = ''
 $script:lastWarningKey = $null
 $script:warningActive = $false
 $script:idleHelperLoaded = $false
@@ -1005,6 +1025,7 @@ function New-InteractiveGateTask {
     [switch]$AtLogon
   )
   if (-not $UserName) { return $false }
+  $script:lastGateTaskError = ''
   try {
     try {
       $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $ArgumentList
@@ -1019,6 +1040,7 @@ function New-InteractiveGateTask {
       Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
       return $true
     } catch {
+      $script:lastGateTaskError = 'ScheduledTask cmdlet: ' + $_.Exception.Message
       Write-Log ('ScheduledTask cmdlet failed for {0} ({1}); trying schtasks.exe.' -f $TaskName, $_.Exception.Message)
     }
     $tr = '"powershell.exe" {0}' -f $ArgumentList
@@ -1026,8 +1048,10 @@ function New-InteractiveGateTask {
     if (-not $AtLogon) { $schArgs += @('/ST', '00:00') }
     $schOutput = (& schtasks.exe @schArgs 2>&1) | Out-String
     if ($LASTEXITCODE -eq 0) { return $true }
+    $script:lastGateTaskError = ('schtasks (exit {0}): {1}' -f $LASTEXITCODE, ($schOutput.Trim()))
     Write-Log ('schtasks failed to register {0} (exit {1}): {2}' -f $TaskName, $LASTEXITCODE, ($schOutput.Trim()))
   } catch {
+    $script:lastGateTaskError = $_.Exception.Message
     Write-Log ('Could not create interactive task {0}: {1}' -f $TaskName, $_.Exception.Message)
   }
   return $false
@@ -1149,6 +1173,10 @@ function Register-LogonGate {
       return $true
     }
     Write-Log ('Could not register the logon gate for {0}; the agent will still show the gate after login.' -f $UserName)
+    if ($config -and $config.token) {
+      $errBody = @{ token = $config.token; type = 'gate'; message = ('Logon gate registration failed for {0} on {1}' -f $UserName, $env:COMPUTERNAME); detail = $script:lastGateTaskError }
+      try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $errBody | Out-Null } catch {}
+    }
   } catch {
     Write-Log ('Could not register the logon gate for {0}: {1}' -f $UserName, $_.Exception.Message)
   }
