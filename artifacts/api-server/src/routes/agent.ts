@@ -502,6 +502,9 @@ router.post("/agent/files/list", async (req, res): Promise<void> => {
         isDir: entry.isDir,
         size: entry.size,
         modifiedAt: entry.modifiedAt,
+        label: entry.label,
+        capacity: entry.capacity,
+        freeSpace: entry.freeSpace,
       })),
     );
   }

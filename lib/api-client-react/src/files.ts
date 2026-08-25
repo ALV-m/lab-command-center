@@ -267,6 +267,9 @@ export interface FileEntry {
   isDir: boolean;
   size: number;
   modifiedAt?: string | null;
+  label?: string | null;
+  capacity?: number | null;
+  freeSpace?: number | null;
 }
 
 export interface BrowseFilesResult {

@@ -29,6 +29,9 @@ export const FileEntry = zod.object({
   isDir: zod.boolean(),
   size: zod.number(),
   modifiedAt: zod.string().nullish(),
+  label: zod.string().nullish(),
+  capacity: zod.number().nullish(),
+  freeSpace: zod.number().nullish(),
 });
 
 export const ReportFileListingBody = zod.object({
@@ -40,7 +43,7 @@ export const ReportFileListingBody = zod.object({
 export const BrowseFilesParams = zod.object({ computerId: zod.coerce.number() });
 
 export const BrowseFilesQuery = zod.object({
-  path: zod.string().min(1).max(1000).optional(),
+  path: zod.string().max(1000).optional(),
 });
 
 export const BrowseFilesResponse = zod.object({

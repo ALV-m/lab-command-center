@@ -60,7 +60,7 @@ function ComputerBrowser({
   computer: Computer;
   queryClient: QueryClient;
 }) {
-  const [path, setPath] = useState("C:\\");
+  const [path, setPath] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
 
@@ -101,12 +101,16 @@ function ComputerBrowser({
 
   const openFolder = (entry: FileEntry) => {
     if (!entry.isDir) return;
-    setPath(joinPath(path, entry.name));
+    if (path === "") {
+      setPath(entry.name);
+    } else {
+      setPath(joinPath(path, entry.name));
+    }
   };
 
   const goUp = () => {
     const up = parentPath(path);
-    if (up) setPath(up);
+    setPath(up ?? "");
   };
 
   const confirmDelete = (entry: FileEntry) => {
@@ -128,12 +132,12 @@ function ComputerBrowser({
   return (
     <div className="space-y-3">
       <div className="no-print flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" disabled={!parentPath(path)} onClick={goUp}>
+        <Button variant="outline" size="sm" disabled={path === ""} onClick={goUp}>
           <ArrowUp className="size-4" />
           Up
         </Button>
         <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1.5 text-xs">
-          {path}
+          {path || "This PC"}
         </code>
         <input
           ref={uploadRef}
@@ -208,11 +212,15 @@ function ComputerBrowser({
                       ) : (
                         <FileText className="size-4 shrink-0 text-muted-foreground" />
                       )}
-                      <span className="truncate">{entry.name}</span>
+                      <span className="truncate">
+                        {entry.capacity != null && entry.label ? `${entry.label} (${entry.name})` : entry.name}
+                      </span>
                     </span>
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {entry.isDir ? "—" : formatBytes(entry.size)}
+                    {entry.capacity != null && entry.freeSpace != null
+                      ? `${formatBytes(entry.freeSpace)} free`
+                      : entry.isDir ? "—" : formatBytes(entry.size)}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {entry.modifiedAt ? formatDateTime(entry.modifiedAt) : "—"}

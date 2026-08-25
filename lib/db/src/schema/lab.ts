@@ -145,6 +145,9 @@ export const fileEntriesTable = pgTable("lab_file_entries", {
   isDir: boolean("is_dir").notNull().default(false),
   size: bigint("size", { mode: "number" }).notNull().default(0),
   modifiedAt: text("modified_at"),
+  label: text("label"),
+  capacity: bigint("capacity", { mode: "number" }),
+  freeSpace: bigint("free_space", { mode: "number" }),
   listedAt: timestamp("listed_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

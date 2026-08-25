@@ -185,7 +185,7 @@ router.get("/lab/computers/:computerId/files/browse", async (req, res): Promise<
   if (!computer.agentToken) {
     res.json(
       BrowseFilesResponse.parse({
-        path: query.data.path ?? "C:\\",
+        path: "\\",
         pending: false,
         error: "This PC has no agent installed.",
         entries: [],
@@ -194,7 +194,7 @@ router.get("/lab/computers/:computerId/files/browse", async (req, res): Promise<
     return;
   }
 
-  const target = query.data.path || "C:\\";
+  const target = query.data.path ?? "";
   const key = dirKey(target);
   const listedAtCutoff = new Date(Date.now() - 15_000);
 
@@ -224,13 +224,16 @@ router.get("/lab/computers/:computerId/files/browse", async (req, res): Promise<
   if (fresh) {
     res.json(
       BrowseFilesResponse.parse({
-        path: target,
+        path: target || "\\",
         pending: false,
         entries: entries.map((entry) => ({
           name: entry.name,
           isDir: entry.isDir,
           size: entry.size,
           modifiedAt: entry.modifiedAt,
+          label: entry.label,
+          capacity: entry.capacity,
+          freeSpace: entry.freeSpace,
         })),
       }),
     );
@@ -253,13 +256,13 @@ router.get("/lab/computers/:computerId/files/browse", async (req, res): Promise<
     await db.insert(actionsTable).values({
       computerId: computer.id,
       action: "list_files",
-      message: `List directory "${target}" on ${computer.name}`,
+      message: `List directory "${target || "\\"}" on ${computer.name}`,
       payload: JSON.stringify({ path: target }),
       status: "queued",
     });
     await db.insert(eventsTable).values({
       type: "operator_action",
-      message: `Directory listing requested for ${target} on ${computer.name} by Lab administrator`,
+      message: `Directory listing requested for ${target || "\\"} on ${computer.name} by Lab administrator`,
       actor: "Lab administrator",
       computerName: computer.name,
     });
@@ -267,13 +270,16 @@ router.get("/lab/computers/:computerId/files/browse", async (req, res): Promise<
 
   res.json(
     BrowseFilesResponse.parse({
-      path: target,
+      path: target || "\\",
       pending: true,
       entries: entries.map((entry) => ({
         name: entry.name,
         isDir: entry.isDir,
         size: entry.size,
         modifiedAt: entry.modifiedAt,
+        label: entry.label,
+        capacity: entry.capacity,
+        freeSpace: entry.freeSpace,
       })),
     }),
   );

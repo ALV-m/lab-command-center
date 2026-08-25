@@ -277,6 +277,11 @@ const TENANT_DDL_STATEMENTS = [
     ON lab_file_entries (computer_id, path);
   `,
   `
+  ALTER TABLE lab_file_entries ADD COLUMN IF NOT EXISTS label text;
+  ALTER TABLE lab_file_entries ADD COLUMN IF NOT EXISTS capacity bigint;
+  ALTER TABLE lab_file_entries ADD COLUMN IF NOT EXISTS free_space bigint;
+  `,
+  `
   CREATE TABLE IF NOT EXISTS lab_checkins (
     id serial PRIMARY KEY,
     computer_id integer NOT NULL,

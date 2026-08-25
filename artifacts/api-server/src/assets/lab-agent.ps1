@@ -50,7 +50,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.11.1'
+$script:AgentVersion = '1.12.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $PendingPath = Join-Path $ConfigDir 'pending\checkins.json'
@@ -158,31 +158,57 @@ function Get-CurrentUser {
   return ''
 }
 
+function Ensure-LaunchHelper {
+  $helper = @'
+Set sh = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+cmd = ""
+p = WScript.Arguments(0)
+If fso.FileExists(p) Then
+  Set f = fso.OpenTextFile(p, 1)
+  cmd = f.ReadAll()
+  f.Close()
+  fso.DeleteFile p
+End If
+If Len(cmd) > 0 Then sh.Run cmd, 0, False
+'@
+  try {
+    New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
+    Set-Content -LiteralPath $script:LauncherPath -Value $helper -Encoding ASCII
+  } catch {
+    Write-Log ('Launch helper write failed: {0}' -f $_.Exception.Message)
+  }
+}
+
 function Invoke-Interactive {
-  # Run a command in the logged-on user's interactive desktop. Under SYSTEM
-  # this uses a temporary interactive scheduled task bound to the current user
-  # (registered with the ScheduledTasks cmdlets, which encode the command line
-  # correctly in the task XML); otherwise it starts the process directly.
+  # Run a command in the logged-on user's interactive desktop with no visible
+  # window. The actual command line is written to a temp file and executed by a
+  # hidden wscript wrapper, so nothing ever pops up on the desktop.
   param([string]$FilePath, [string]$ArgumentList = '')
   $user = Get-CurrentUser
   if (-not $user -or $user -match '(?i)^nt authority\\' -or $user -match '\$$') {
     Write-Log 'No interactive user session; skipping interactive action.'
     return
   }
+  Ensure-LaunchHelper
+  try {
+    $cmdline = '"{0}" {1}' -f $FilePath, $ArgumentList
+    [System.IO.File]::WriteAllText($script:InteractiveCmdPath, $cmdline)
+  } catch {
+    Write-Log ('Interactive command file write failed: {0}' -f $_.Exception.Message)
+    return
+  }
+  $launchArgs = '"{0}" "{1}"' -f $script:LauncherPath, $script:InteractiveCmdPath
   if (-not (Get-IsSystem)) {
     try {
-      if ($ArgumentList) {
-        Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -WindowStyle Hidden -ErrorAction Stop
-      } else {
-        Start-Process -FilePath $FilePath -WindowStyle Hidden -ErrorAction Stop
-      }
+      Start-Process -FilePath 'wscript.exe' -ArgumentList $launchArgs -WindowStyle Hidden -ErrorAction Stop
     } catch {}
     return
   }
   $taskName = 'LabCC-Interactive-' + [Guid]::NewGuid().ToString('N')
   try {
     try {
-      $action = New-ScheduledTaskAction -Execute $FilePath -Argument $ArgumentList
+      $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument $launchArgs
       $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date)
       $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
       $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
@@ -194,7 +220,7 @@ function Invoke-Interactive {
     } catch {
       Write-Log ('Interactive task failed for {0} ({1}); trying schtasks.exe.' -f $user, $_.Exception.Message)
     }
-    $tr = '"{0}" {1}' -f $FilePath, $ArgumentList
+    $tr = 'wscript.exe {0}' -f $launchArgs
     & schtasks.exe /Create /TN $taskName /TR $tr /SC ONCE /ST 00:00 /RU $user /IT /RL HIGHEST /F 2>$null | Out-Null
     Start-Sleep -Milliseconds 400
     for ($attempt = 0; $attempt -lt 3; $attempt++) {
@@ -289,7 +315,11 @@ public static class LccIdleHelper {
 $script:WarningScriptPath = Join-Path $ConfigDir 'peripheral-warning.ps1'
 $script:MessageScriptPath = Join-Path $ConfigDir 'message.ps1'
 $script:CheckinScriptPath = Join-Path $ConfigDir 'checkin-gate.ps1'
-$script:ScreenshotScriptPath = Join-Path $ConfigDir 'capture-screenshot.ps1'
+$script:CaptureLoopScriptPath = Join-Path $ConfigDir 'capture-loop.ps1'
+$script:CaptureLoopPidPath = Join-Path $ConfigDir 'frame-loop.pid'
+$script:FramePath = Join-Path $ConfigDir 'frame.jpg'
+$script:LauncherPath = Join-Path $ConfigDir 'LabCC-LaunchHidden.vbs'
+$script:InteractiveCmdPath = Join-Path $ConfigDir 'interactive.cmd'
 $script:InputScriptPath = Join-Path $ConfigDir 'remote-input.ps1'
 $script:GateLauncherPath = Join-Path $ConfigDir 'gate-launcher.ps1'
 $script:GateMarkerPath = Join-Path $ConfigDir 'pending\gate-request'
@@ -297,6 +327,7 @@ $script:logonGateRegisteredFor = ''
 $script:lastGateRetryAt = $null
 $script:lastUpdateAttemptAt = $null
 $script:lastGateTaskError = ''
+$script:lastFrameUploadedKey = ''
 $script:lastWarningKey = $null
 $script:warningActive = $false
 $script:idleHelperLoaded = $false
@@ -548,46 +579,100 @@ function Enable-UsbDevice {
   return $false
 }
 
-function Ensure-ScreenshotScript {
+function Ensure-CaptureLoopScript {
   $content = @'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-$bounds = [System.Drawing.Rectangle]::Empty
-foreach ($screen in [System.Windows.Forms.Screen]::AllScreens) {
-  $bounds = [System.Drawing.Rectangle]::Union($bounds, $screen.Bounds)
-}
-$bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
-$g = [System.Drawing.Graphics]::FromImage($bmp)
+$dir = Join-Path $env:ProgramData 'LabCommandCenter'
+$frame = Join-Path $dir 'frame.jpg'
+$pidFile = Join-Path $dir 'frame-loop.pid'
 try {
-  $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-} finally {
-  $g.Dispose()
+  [System.IO.File]::WriteAllText($pidFile, [string]$PID)
+} catch {}
+$codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }
+$quality = New-Object System.Drawing.Imaging.EncoderParameters(1)
+$quality.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [long]60)
+while ($true) {
+  try {
+    $bounds = [System.Drawing.Rectangle]::Empty
+    foreach ($screen in [System.Windows.Forms.Screen]::AllScreens) {
+      $bounds = [System.Drawing.Rectangle]::Union($bounds, $screen.Bounds)
+    }
+    $bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    try {
+      $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+    } finally {
+      $g.Dispose()
+    }
+    $bmp.Save($frame, $codec, $quality)
+    $bmp.Dispose()
+  } catch {}
+  Start-Sleep -Milliseconds 250
 }
-$out = Join-Path $env:TEMP 'labcc-screenshot.png'
-$bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
-$bmp.Dispose()
 '@
-  Set-Content -LiteralPath $script:ScreenshotScriptPath -Value $content -Encoding UTF8
+  Set-Content -LiteralPath $script:CaptureLoopScriptPath -Value $content -Encoding UTF8
 }
 
-function Capture-Screenshot {
-  Ensure-ScreenshotScript
-  $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $script:ScreenshotScriptPath
+function Start-CaptureLoop {
+  Ensure-CaptureLoopScript
+  $running = $false
+  if (Test-Path -LiteralPath $script:CaptureLoopPidPath) {
+    try {
+      $loopPid = [int](Get-Content -LiteralPath $script:CaptureLoopPidPath -Raw)
+      if (Get-Process -Id $loopPid -ErrorAction SilentlyContinue) {
+        $procInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $loopPid" -ErrorAction SilentlyContinue
+        if ($procInfo -and $procInfo.CommandLine -and $procInfo.CommandLine -like '*capture-loop.ps1*') {
+          $running = $true
+        }
+      }
+    } catch {}
+  }
+  if ($running) { return }
+  $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f $script:CaptureLoopScriptPath
   Invoke-Interactive -FilePath 'powershell.exe' -ArgumentList $argLine
-  Start-Sleep -Milliseconds 1200
-  $path = Join-Path $env:TEMP 'labcc-screenshot.png'
-  if (-not (Test-Path -LiteralPath $path)) {
+}
+
+function Stop-CaptureLoop {
+  if (-not (Test-Path -LiteralPath $script:CaptureLoopPidPath)) { return }
+  try {
+    $loopPid = [int](Get-Content -LiteralPath $script:CaptureLoopPidPath -Raw)
+    Stop-Process -Id $loopPid -Force -ErrorAction SilentlyContinue
+  } catch {}
+  Remove-Item -LiteralPath $script:CaptureLoopPidPath -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $script:FramePath -Force -ErrorAction SilentlyContinue
+}
+
+function Upload-Frame {
+  Start-CaptureLoop
+  $deadline = (Get-Date).AddSeconds(2)
+  $frameItem = $null
+  while ((Get-Date) -lt $deadline) {
+    if (Test-Path -LiteralPath $script:FramePath) {
+      $frameItem = Get-Item -LiteralPath $script:FramePath
+      if (((Get-Date) - $frameItem.LastWriteTime).TotalSeconds -lt 1.5) { break }
+    }
+    Start-Sleep -Milliseconds 150
+  }
+  if (-not $frameItem) {
     return @{ success = $false; detail = 'Could not capture the screen (no interactive session?).' }
+  }
+  $frameKey = $frameItem.LastWriteTimeUtc.Ticks.ToString()
+  if ($script:lastFrameUploadedKey -eq $frameKey) {
+    return @{ success = $true; detail = 'No new frame yet.' }
   }
   try {
     $url = '{0}/api/agent/screenshot?token={1}' -f $ServerUrl, $config.token
-    Invoke-RestMethod -Uri $url -Method Post -InFile $path -ContentType 'image/png' -TimeoutSec 60 | Out-Null
-    return @{ success = $true; detail = 'Screenshot captured and uploaded.' }
+    Invoke-RestMethod -Uri $url -Method Post -InFile $script:FramePath -ContentType 'image/jpeg' -TimeoutSec 60 | Out-Null
+    $script:lastFrameUploadedKey = $frameKey
+    return @{ success = $true; detail = 'Frame captured and uploaded.' }
   } catch {
     return @{ success = $false; detail = $_.Exception.Message }
-  } finally {
-    Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
   }
+}
+
+function Capture-Screenshot {
+  return Upload-Frame
 }
 
 function Ensure-CheckinScript {
@@ -1631,9 +1716,32 @@ function Receive-PushedFile {
   return @{ success = $true; detail = ('Saved to {0}' -f $destPath) }
 }
 
+function Get-DriveListing {
+  $entries = @()
+  try {
+    $drives = @([System.IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady })
+    foreach ($drive in $drives) {
+      $label = ''
+      try { $label = [string]$drive.VolumeLabel } catch {}
+      $entries += @{
+        name = $drive.Name
+        isDir = $true
+        size = 0
+        modifiedAt = $null
+        label = $label
+        capacity = [long]$drive.TotalSize
+        freeSpace = [long]$drive.TotalFreeSpace
+      }
+    }
+  } catch {}
+  return @{ path = '\'; entries = $entries }
+}
+
 function Get-DirListing {
   param([string]$Path)
-  if (-not $Path) { $Path = 'C:\' }
+  if (-not $Path -or $Path -eq '\' -or $Path -eq '/') {
+    return Get-DriveListing
+  }
   if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
     throw ('Directory not found: {0}' -f $Path)
   }
@@ -2032,7 +2140,7 @@ function Execute-Action {
         break
       }
       'list_files' {
-        $target = 'C:\'
+        $target = ''
         if ($payload.path) { $target = [string]$payload.path }
         try {
           $listing = Get-DirListing -Path $target
@@ -2296,10 +2404,6 @@ try {
       Sync-PendingCheckins
 
       # ---- live remote view -----------------------------------------------
-      # While the server has a remote view/control session open for this PC
-      # (an operator is looking at or controlling it), stream a screenshot
-      # every pass so the dashboard shows a live preview instead of a single
-      # on-demand capture.
       $script:remoteViewActive = $false
       if ($hb -and $hb.computer -and $hb.computer.remoteViewActive) {
         $script:remoteViewActive = [bool]$hb.computer.remoteViewActive
@@ -2308,8 +2412,10 @@ try {
         $streamUser = Get-CurrentUser
         $streamUserOk = ($streamUser -and -not ($streamUser -match '(?i)^nt authority\\') -and $streamUser -notmatch '\$$')
         if ($streamUserOk) {
-          Capture-Screenshot | Out-Null
+          Upload-Frame | Out-Null
         }
+      } else {
+        Stop-CaptureLoop
       }
 
       # ---- USB handling ---------------------------------------------------
@@ -2500,7 +2606,7 @@ try {
     }
 
     if ($script:remoteViewActive) {
-      Start-Sleep -Seconds 2
+      Start-Sleep -Milliseconds 300
     } else {
       Start-Sleep -Seconds $IntervalSeconds
     }
