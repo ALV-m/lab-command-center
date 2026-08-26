@@ -20,6 +20,7 @@ export const AgentComputerAction = zod.enum([
   "fw_enable",
   "fw_disable",
   "wol_relay",
+  "disable_rdp",
 ]);
 
 export const AgentRegisterBody = zod.object({

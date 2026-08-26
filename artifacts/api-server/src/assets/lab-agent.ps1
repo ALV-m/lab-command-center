@@ -1542,12 +1542,43 @@ function Set-DownloadBlock {
 
 function Enable-RemoteDesktop {
   $notes = @()
+  # 1. Enable RDP via registry
   try {
     New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
-    $notes += 'Remote Desktop enabled.'
+    $notes += 'RDP registry enabled.'
   } catch {
-    $notes += 'RDP enable needs admin rights; use Quick Assist instead.'
+    $notes += 'RDP registry failed (needs admin).'
   }
+  # 2. Enable the Windows Firewall rule for Remote Desktop (all profiles)
+  try {
+    Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' -ErrorAction Stop | Out-Null
+    $notes += 'Firewall rule enabled.'
+  } catch {
+    try {
+      netsh advfirewall firewall set rule group="Remote Desktop" new enable=yes 2>$null | Out-Null
+      $notes += 'Firewall rule enabled (netsh).'
+    } catch {
+      $notes += 'Firewall rule enable failed.'
+    }
+  }
+  # 3. Ensure RDP Windows feature is enabled (non-destructive)
+  try {
+    $rdpFeature = Get-WindowsOptionalFeature -Online -FeatureName 'RemoteDesktop' -ErrorAction SilentlyContinue
+    if ($rdpFeature -and $rdpFeature.State -ne 'Enabled') {
+      Enable-WindowsOptionalFeature -Online -FeatureName 'RemoteDesktop' -NoRestart -ErrorAction Stop | Out-Null
+      $notes += 'RDP feature enabled.'
+    }
+  } catch {}
+  # 4. Allow remote connections via Group Policy key (RDP wrapper compat)
+  try {
+    New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name 'fDenyTSConnections' -Value 0 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+  } catch {}
+  # 5. Set NLA to optional so older clients can connect
+  try {
+    New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'UserAuthentication' -Value 0 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+    $notes += 'NLA relaxed.'
+  } catch {}
+  # 6. Get IP for reporting
   $ip = ''
   try {
     $ipObj = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {
@@ -1555,7 +1586,32 @@ function Enable-RemoteDesktop {
     } | Select-Object -First 1
     if ($ipObj) { $ip = $ipObj.IPAddress }
   } catch {}
-  return @{ success = $true; detail = ('Host {0} IP {1}. {2}' -f $env:COMPUTERNAME, $ip, ($notes -join ' ')) }
+  return @{ success = $true; detail = ('RDP enabled on {0} ({1}). {2}' -f $env:COMPUTERNAME, $ip, ($notes -join ' ')) }
+}
+
+function Disable-RemoteDesktop {
+  $notes = @()
+  try {
+    New-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+    $notes += 'RDP registry disabled.'
+  } catch {
+    $notes += 'RDP registry disable failed (needs admin).'
+  }
+  try {
+    Disable-NetFirewallRule -DisplayGroup 'Remote Desktop' -ErrorAction Stop | Out-Null
+    $notes += 'Firewall rule disabled.'
+  } catch {
+    try {
+      netsh advfirewall firewall set rule group="Remote Desktop" new enable=no 2>$null | Out-Null
+      $notes += 'Firewall rule disabled (netsh).'
+    } catch {
+      $notes += 'Firewall rule disable failed.'
+    }
+  }
+  try {
+    New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services' -Name 'fDenyTSConnections' -Value 1 -PropertyType DWord -Force -ErrorAction Stop | Out-Null
+  } catch {}
+  return @{ success = $true; detail = ('RDP disabled on {0}. {1}' -f $env:COMPUTERNAME, ($notes -join ' ')) }
 }
 
 function Ensure-InputScript {
@@ -2150,6 +2206,10 @@ function Execute-Action {
       }
       'remote_control' {
         $result = Enable-RemoteDesktop
+        break
+      }
+      'disable_rdp' {
+        $result = Disable-RemoteDesktop
         break
       }
       'remote_input' {

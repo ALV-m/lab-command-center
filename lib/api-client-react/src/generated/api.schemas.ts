@@ -112,6 +112,7 @@ export const ComputerActionInputAction = {
   fw_enable: 'fw_enable',
   fw_disable: 'fw_disable',
   wol_relay: 'wol_relay',
+  disable_rdp: 'disable_rdp',
 } as const;
 
 export interface ComputerActionInput {

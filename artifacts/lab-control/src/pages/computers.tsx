@@ -364,6 +364,13 @@ function Computers() {
                           Enable RDP
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          disabled={actionMutation.isPending}
+                          onClick={() => runAction(computer, ComputerActionInputAction.disable_rdp)}
+                        >
+                          <Ban className="size-4" />
+                          Disable RDP
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           disabled={!computer.ipAddress}
                           onClick={() => {
                             window.open(`/api/lab/computers/${computer.id}/rdp`, "_blank");
