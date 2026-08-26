@@ -38,6 +38,7 @@ import {
   AgentUploadResponse,
   ReportFileListingBody,
 } from "@workspace/api-zod";
+import { broadcastFrame } from "../lib/tunnel";
 
 const router: IRouter = Router();
 
@@ -773,6 +774,9 @@ router.post(
       computerId: computer.id,
       fileId,
     });
+
+    // Forward frame to any connected dashboards via WebSocket
+    broadcastFrame(computer.id, req.body.toString("base64"));
 
     res.status(201).json(AgentScreenshotResponse.parse({ fileId, takenAt: new Date().toISOString() }));
   },

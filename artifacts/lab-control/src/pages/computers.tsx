@@ -760,6 +760,9 @@ function RemoteViewDialog({
   const [keyboardEnabled, setKeyboardEnabled] = useState(false);
   const [typeText, setTypeText] = useState("");
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  const [wsFrame, setWsFrame] = useState<string | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const imgRef = useRef<HTMLImageElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -768,10 +771,11 @@ function RemoteViewDialog({
   const dragRef = useRef<{ button: "left" | "right" | "middle"; x: number; y: number } | null>(null);
   const downRef = useRef<{ x: number; y: number; t: number; button: "left" | "right" | "middle" } | null>(null);
 
-  const { data, isFetching } = useGetLatestScreenshot(computer.id, {
+  // HTTP fallback for initial screenshot
+  const { data } = useGetLatestScreenshot(computer.id, {
     query: {
       queryKey: getLatestScreenshotQueryKey(computer.id),
-      refetchInterval: open ? 1_000 : false,
+      refetchInterval: open && !wsConnected ? 1_000 : false,
     },
   });
 
@@ -785,6 +789,59 @@ function RemoteViewDialog({
   });
 
   const shot = data?.screenshot;
+
+  // WebSocket tunnel for real-time frames
+  useEffect(() => {
+    if (!open) {
+      setWsFrame(null);
+      setWsConnected(false);
+      return;
+    }
+
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const host = window.location.host;
+    const url = `${proto}//${host}/ws/tunnel?role=dashboard&computerId=${computer.id}`;
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: "start_view" }));
+      // Trigger an initial HTTP screenshot so the agent starts streaming
+      actionMutation.mutate(
+        { computerId: computer.id, data: { action: ComputerActionInputAction.remote_view } },
+        { onError: () => {} },
+      );
+    };
+
+    ws.onmessage = (event) => {
+      let msg: Record<string, unknown>;
+      try {
+        msg = JSON.parse(String(event.data));
+      } catch {
+        return;
+      }
+      if (msg.type === "frame" && typeof msg.data === "string") {
+        setWsFrame(msg.data);
+        setWsConnected(true);
+      }
+      if (msg.type === "status") {
+        setWsConnected(Boolean(msg.connected));
+      }
+    };
+
+    ws.onerror = () => {};
+    ws.onclose = () => {
+      setWsConnected(false);
+    };
+
+    return () => {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.send(JSON.stringify({ type: "stop_view" }));
+        ws.close();
+      }
+      wsRef.current = null;
+    };
+  }, [open, computer.id, actionMutation]);
 
   const invalidateShot = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: getLatestScreenshotQueryKey(computer.id) });
@@ -806,16 +863,21 @@ function RemoteViewDialog({
 
   const sendInput = useCallback(
     (payload: RemoteInputPayload) => {
-      actionMutation.mutate(
-        {
-          computerId: computer.id,
-          data: {
-            action: ComputerActionInputAction.remote_input,
-            payload: JSON.stringify(payload),
+      // Try WebSocket first, fall back to HTTP
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "input", payload }));
+      } else {
+        actionMutation.mutate(
+          {
+            computerId: computer.id,
+            data: {
+              action: ComputerActionInputAction.remote_input,
+              payload: JSON.stringify(payload),
+            },
           },
-        },
-        { onError: () => {} },
-      );
+          { onError: () => {} },
+        );
+      }
     },
     [actionMutation, computer.id],
   );
@@ -828,23 +890,6 @@ function RemoteViewDialog({
       setCursor(null);
     }
   }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    // Start the remote session right away and keep it alive so the agent
-    // keeps streaming screenshots (the session expires ~45s after the last
-    // remote action, so re-request periodically while the dialog is open).
-    requestShot();
-    const keepAlive = window.setInterval(requestShot, 30_000);
-    return () => window.clearInterval(keepAlive);
-  }, [open, requestShot]);
-
-  useEffect(() => {
-    if (!open || !controlEnabled) return;
-    requestShot();
-    const timer = window.setInterval(requestShot, 4_000);
-    return () => window.clearInterval(timer);
-  }, [open, controlEnabled, requestShot]);
 
   useEffect(() => {
     return () => {
@@ -998,9 +1043,13 @@ function RemoteViewDialog({
         <DialogHeader>
           <DialogTitle>Remote view & control — {computer.name}</DialogTitle>
           <DialogDescription>
-            {shot
-              ? `Live preview from ${formatDateTime(shot.takenAt)}. Input is relayed to the agent on its next poll, so expect a short delay.`
-              : "No screenshot available yet. Request one below."}
+            {wsConnected
+              ? "Real-time stream via WebSocket. Move your mouse and type to control the remote PC."
+              : wsFrame
+                ? "Connected. Waiting for continuous stream…"
+                : shot
+                  ? `HTTP fallback preview from ${formatDateTime(shot.takenAt)}. Waiting for WebSocket connection…`
+                  : "Connecting to agent… frames will stream once the agent is reachable."}
           </DialogDescription>
         </DialogHeader>
 
@@ -1085,24 +1134,24 @@ function RemoteViewDialog({
               controlEnabled && "cursor-crosshair focus-visible:ring-2 focus-visible:ring-ring",
             )}
           >
-            {shot ? (
+            {(wsFrame || shot) ? (
               <img
                 ref={imgRef}
-                src={screenshotFileUrl(shot.fileId)}
+                src={wsFrame ? `data:image/jpeg;base64,${wsFrame}` : screenshotFileUrl(shot!.fileId)}
                 alt={`Screenshot of ${computer.name}`}
                 className="h-full w-full object-contain"
                 draggable={false}
               />
             ) : (
               <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-                {isFetching ? <Spinner className="size-4" /> : <Monitor className="size-4" />}
-                {isFetching ? "Checking for a screenshot…" : "No screenshot yet. Request one above."}
+                {!wsConnected ? <Spinner className="size-4" /> : <Monitor className="size-4" />}
+                {!wsConnected ? "Connecting to agent…" : "No screenshot yet. Request one above."}
               </div>
             )}
-            {controlEnabled && shot ? (
+            {controlEnabled && (wsFrame || shot) ? (
               <div className="absolute top-2 left-2 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-xs text-white">
                 <span className="size-1.5 animate-pulse rounded-full bg-red-500" />
-                Live control
+                {wsConnected ? "Live — WebSocket" : "Live — HTTP fallback"}
                 {cursor ? ` — ${cursor.x}, ${cursor.y}` : null}
               </div>
             ) : null}

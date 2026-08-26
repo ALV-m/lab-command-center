@@ -1,7 +1,9 @@
+import { createServer } from "node:http";
 import app from "./app";
 import { db, ensureAllTenantSchemas, ensureSchema, tenantsTable } from "@workspace/db";
 import { logger } from "./lib/logger";
 import { seedPlatformAdmin } from "./lib/auth";
+import { attachWebSocket } from "./lib/tunnel";
 
 const rawPort = process.env["PORT"];
 
@@ -34,13 +36,16 @@ async function main() {
 
   await seedPlatformAdmin();
 
-  app.listen(port, (err) => {
-    if (err) {
-      logger.error({ err }, "Error listening on port");
-      process.exit(1);
-    }
+  const server = createServer(app);
+  attachWebSocket(server);
 
+  server.listen(port); 
+  server.on("listening", () => {
     logger.info({ port }, "Server listening");
+  });
+  server.on("error", (err: Error) => {
+    logger.error({ err }, "Error listening on port");
+    process.exit(1);
   });
 }
 
