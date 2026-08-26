@@ -2414,6 +2414,75 @@ $script:seenUsb = @()
 
 Write-Log ('Agent v{0} running for {1} -> {2}' -f $script:AgentVersion, $config.name, $ServerUrl)
 
+# ---------------------------------------------------------------------------
+# WebSocket listener for instant action dispatch (background runspace).
+# The server can push actions to the agent over WS instead of waiting for the
+# next heartbeat cycle.  Results are sent back over WS *and* via the normal
+# HTTP complete endpoint so the audit trail is always up to date.
+# ---------------------------------------------------------------------------
+$script:WsConnected = $false
+$script:WsActionQueue = [System.Collections.Concurrent.ConcurrentQueue[hashtable]]::new()
+
+function Start-WsListener {
+  $wsBase = ($ServerUrl -replace '^http', 'ws') + '/ws/tunnel'
+  $tokenEnc = [System.Uri]::EscapeDataString($config.token)
+  $compId = [long]$config.computerId
+
+  $ps = [powershell]::Create()
+  $ps.Runspace = [runspacefactory]::CreateRunspace()
+  $ps.Runspace.Open()
+  $ps.Runspace.SessionStateProxy.SetVariable('wsBase', $wsBase)
+  $ps.Runspace.SessionStateProxy.SetVariable('tokenEnc', $tokenEnc)
+  $ps.Runspace.SessionStateProxy.SetVariable('compId', $compId)
+  $ps.Runspace.SessionStateProxy.SetVariable('WsActionQueue', $script:WsActionQueue)
+
+  [void]$ps.AddScript({
+    $reconnectDelay = 2
+    while ($true) {
+      $ws = $null
+      try {
+        $ws = [System.Net.WebSockets.ClientWebSocket]::new()
+        $uri = [System.Uri]::new('{0}?role=agent&token={1}' -f $wsBase, $tokenEnc)
+        $cts = [System.Threading.CancellationTokenSource]::new()
+        $ws.ConnectAsync($uri, $cts.Token).GetAwaiter().GetResult()
+
+        $hello = [System.Text.Encoding]::UTF8.GetBytes('{"type":"hello","computerId":' + $compId + '}')
+        $ws.SendAsync([System.ArraySegment[byte]]::new($hello), [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).GetAwaiter().GetResult() | Out-Null
+
+        $script:WsConnected = $true
+        $reconnectDelay = 2
+
+        $buf = New-Object byte[] 65536
+        while ($ws.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
+          $result = $ws.ReceiveAsync([System.ArraySegment[byte]]::new($buf), $cts.Token).GetAwaiter().GetResult()
+          if ($result.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) { break }
+          if ($result.Count -gt 0) {
+            $json = [System.Text.Encoding]::UTF8.GetString($buf, 0, $result.Count)
+            try {
+              $msg = $json | ConvertFrom-Json
+              if ($msg.type -eq 'action' -and $msg.actionId) {
+                $WsActionQueue.Enqueue(@{
+                  actionId = [long]$msg.actionId
+                  action   = [string]$msg.action
+                  message  = [string]$msg.message
+                  payload  = [string]$msg.payload
+                })
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+      $script:WsConnected = $false
+      try { if ($ws -and $ws.State -ne 'Closed') { $ws.Dispose() } } catch {}
+      Start-Sleep -Seconds $reconnectDelay
+      if ($reconnectDelay -lt 30) { $reconnectDelay = [Math]::Min($reconnectDelay * 2, 30) }
+    }
+  }) | Out-Null
+  $ps.BeginInvoke() | Out-Null
+}
+
+Start-WsListener
+
 # Boot-time tasks: enable security auditing and apply the lab sign-in method.
 Ensure-AuditPolicy
 $script:lastAuditCheck = Get-Date
@@ -2423,6 +2492,19 @@ try {
   while ($true) {
     try {
       Poll-ScanJob
+
+      # ---- drain WS instant-action queue ------------------------------------
+      while ($true) {
+        $wsAction = $null
+        if (-not $script:WsActionQueue.TryDequeue([ref]$wsAction)) { break }
+        $actObj = @{
+          id      = $wsAction.actionId
+          action  = $wsAction.action
+          message = $wsAction.message
+          payload = $wsAction.payload
+        }
+        Execute-Action $actObj
+      }
 
       $user = Get-CurrentUser
       $av = Get-AvStatus

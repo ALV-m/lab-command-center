@@ -51,6 +51,7 @@ export const actionsTable = pgTable("lab_actions", {
   status: text("status").notNull().default("queued"),
   message: text("message"),
   payload: text("payload"),
+  detail: text("detail"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -103,6 +103,45 @@ function Computers() {
   const [viewTarget, setViewTarget] = useState<Computer | null>(null);
   const [hwTarget, setHwTarget] = useState<Computer | null>(null);
 
+  // Shared WebSocket pool for instant action dispatch (keyed by computerId)
+  const wsPoolRef = useRef<Map<number, WebSocket>>(new Map());
+  const wsPendingRef = useRef<Map<number, Array<{ resolve: (v: unknown) => void; reject: (e: Error) => void }>>>(new Map());
+
+  const getWs = useCallback((computerId: number): WebSocket | null => {
+    const existing = wsPoolRef.current.get(computerId);
+    if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+      return existing;
+    }
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws/tunnel?role=dashboard&computerId=${computerId}`);
+    wsPoolRef.current.set(computerId, ws);
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(String(event.data));
+        if (msg.type === "action_result") {
+          const pending = wsPendingRef.current.get(computerId);
+          if (pending && pending.length > 0) {
+            const handler = pending.shift()!;
+            handler.resolve(msg);
+          }
+        }
+      } catch {}
+    };
+    ws.onerror = () => {};
+    ws.onclose = () => { wsPoolRef.current.delete(computerId); };
+    return ws;
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      for (const ws of wsPoolRef.current.values()) {
+        try { ws.close(); } catch {}
+      }
+      wsPoolRef.current.clear();
+    };
+  }, []);
+
   const actionMutation = useCreateComputerAction({
     mutation: {
       onSuccess: () => {
@@ -149,6 +188,14 @@ function Computers() {
   }, [computers, search, statusFilter]);
 
   const runAction = (computer: Computer, action: ComputerActionInputAction, payload?: string) => {
+    const ws = getWs(computer.id);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "action", action, payload: payload ?? null }));
+      toast.success(`Action "${action}" sent instantly`);
+      queryClient.invalidateQueries({ queryKey: getGetComputersQueryKey() });
+      return;
+    }
+    // Fallback: HTTP queue
     actionMutation.mutate({ computerId: computer.id, data: { action, payload } });
   };
 

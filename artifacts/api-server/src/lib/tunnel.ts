@@ -1,8 +1,8 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
 import type { RawData } from "ws";
-import { eq } from "drizzle-orm";
-import { db, computersTable } from "@workspace/db";
+import { and, eq, sql } from "drizzle-orm";
+import { db, computersTable, actionsTable, eventsTable } from "@workspace/db";
 import { logger } from "./logger";
 
 // ---------------------------------------------------------------------------
@@ -159,6 +159,24 @@ function handleAgentConnection(ws: WebSocket, _token: string): void {
           detail: msg.detail,
         });
       }
+      if (msg.type === "action_result" && typeof msg.actionId === "number") {
+        const success = Boolean(msg.success);
+        const detail = typeof msg.detail === "string" ? msg.detail : undefined;
+        // Update action status in DB
+        db.update(actionsTable)
+          .set({ status: success ? "completed" : "failed", detail })
+          .where(eq(actionsTable.id, msg.actionId))
+          .catch(() => {});
+        // Forward result to all dashboards watching this computer
+        broadcastToDashboards(computerId, {
+          type: "action_result",
+          actionId: msg.actionId,
+          action: msg.action,
+          success,
+          detail,
+        });
+        logger.info({ computerId, actionId: msg.actionId, success }, "WS action result received");
+      }
     }
   });
 
@@ -198,7 +216,7 @@ function handleDashboardConnection(ws: WebSocket, computerId: number): void {
 
   sendJson(ws, { type: "status", connected: agents.has(computerId) });
 
-  ws.on("message", (raw: RawData, isBinary: boolean) => {
+  ws.on("message", async (raw: RawData, isBinary: boolean) => {
     if (isBinary) return; // dashboards don't send binary
     let msg: Record<string, unknown>;
     try {
@@ -241,6 +259,39 @@ function handleDashboardConnection(ws: WebSocket, computerId: number): void {
           type: "input",
           payload: msg.payload,
         });
+        break;
+      }
+      case "action": {
+        const action = String(msg.action ?? "");
+        if (!action) break;
+        const allowedActions = new Set([
+          "lock","unlock","restart","send_message","remote_view","remote_control",
+          "remote_input","block_usb","allow_usb","push_file","delete_file","list_files",
+          "av_scan","av_update","av_toggle","fw_enable","fw_disable","disable_rdp",
+        ]);
+        if (!allowedActions.has(action)) {
+          sendJson(ws, { type: "action_result", action: false, detail: `Unknown action: ${action}` });
+          break;
+        }
+        const msg2 = String(msg.message ?? `${action} requested`);
+        const payload = msg.payload != null ? String(msg.payload) : null;
+        try {
+          const [inserted] = await db
+            .insert(actionsTable)
+            .values({ computerId, action: action as never, message: msg2, payload, status: "dispatched" })
+            .returning();
+          sendToAgent(computerId, {
+            type: "action",
+            actionId: inserted.id,
+            action,
+            message: msg2,
+            payload,
+          });
+          logger.info({ computerId, action, actionId: inserted.id }, "WS instant action dispatched");
+        } catch (err) {
+          logger.warn({ err }, "Failed to create instant action");
+          sendJson(ws, { type: "action_result", action: false, detail: "Failed to queue action" });
+        }
         break;
       }
     }
