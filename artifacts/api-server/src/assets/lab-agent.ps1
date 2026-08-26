@@ -2066,11 +2066,58 @@ function Ensure-SharedAccount {
       Write-Log ('Created shared local account {0}' -f $UserName)
     }
     Add-LocalGroupMember -Group 'Users' -Member $UserName -ErrorAction SilentlyContinue
+    # Prevent the user from changing their own password
+    try {
+      net user $UserName /passwordchg:no 2>$null | Out-Null
+    } catch {}
     return $true
   } catch {
     Write-Log ('Could not ensure shared account {0}: {1}' -f $UserName, $_.Exception.Message)
     return $false
   }
+}
+
+function Block-PasswordChangeUI {
+  # Disable "Change a password" on the Ctrl+Alt+Del screen via Group Policy
+  # and disable the "Switch user" button so users stay on the login form.
+  $gpoKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+  try {
+    if (-not (Test-Path -LiteralPath $gpoKey)) { New-Item -Path $gpoKey -Force | Out-Null }
+    # Hide "Change a password" from Ctrl+Alt+Del (value 1 = disable)
+    Set-ItemProperty -LiteralPath $gpoKey -Name 'DisableChangePassword' -Value 1 -Type DWord -Force
+    # Hide "Switch user" from Ctrl+Alt+Del
+    Set-ItemProperty -LiteralPath $gpoKey -Name 'HideFastUserSwitching' -Value 1 -Type DWord -Force
+    Write-Log 'Blocked password change UI and fast user switching.'
+  } catch {
+    Write-Log ('Could not block password change UI: {0}' -f $_.Exception.Message)
+  }
+  # Disable the Windows lock screen so users cannot reach the password page
+  $personalKey = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Personalization'
+  try {
+    if (-not (Test-Path -LiteralPath $personalKey)) { New-Item -Path $personalKey -Force | Out-Null }
+    Set-ItemProperty -LiteralPath $personalKey -Name 'NoLockScreen' -Value 1 -Type DWord -Force
+  } catch {}
+  # Also set the machine-wide policy to disable lock screen
+  $machineKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization'
+  try {
+    if (-not (Test-Path -LiteralPath $machineKey)) { New-Item -Path $machineKey -Force | Out-Null }
+    Set-ItemProperty -LiteralPath $machineKey -Name 'NoLockScreen' -Value 1 -Type DWord -Force
+  } catch {}
+}
+
+function Unblock-PasswordChangeUI {
+  $gpoKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+  try {
+    if (Test-Path -LiteralPath $gpoKey) {
+      Remove-ItemProperty -LiteralPath $gpoKey -Name 'DisableChangePassword' -Force -ErrorAction SilentlyContinue
+      Remove-ItemProperty -LiteralPath $gpoKey -Name 'HideFastUserSwitching' -Force -ErrorAction SilentlyContinue
+    }
+  } catch {}
+  # Re-enable lock screen
+  $personalKey = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Personalization'
+  try { Remove-ItemProperty -LiteralPath $personalKey -Name 'NoLockScreen' -Force -ErrorAction SilentlyContinue } catch {}
+  $machineKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization'
+  try { Remove-ItemProperty -LiteralPath $machineKey -Name 'NoLockScreen' -Force -ErrorAction SilentlyContinue } catch {}
 }
 
 function Set-SharedAutoLogon {
@@ -2125,6 +2172,8 @@ function Apply-SigninMethod {
       $enabled = Set-SharedAutoLogon -UserName $user -Password $pass
       $cfg | Add-Member -NotePropertyName autoLogonCleaned -NotePropertyValue $false -Force
       Save-Config $cfg
+      # Block password change UI so users only see the login form
+      Block-PasswordChangeUI
       # The shared account auto-logs in at boot, so its ONLOGON task is what
       # brings the login form up directly instead of the Windows login page.
       Register-LogonGate -UserName $user | Out-Null
@@ -2135,6 +2184,7 @@ function Apply-SigninMethod {
       }
     }
   } else {
+    Unblock-PasswordChangeUI
     $cleaned = Remove-AutoLogon
     $alreadyCleaned = ($cfg.PSObject.Properties.Name -contains 'autoLogonCleaned') -and $cfg.autoLogonCleaned
     if ($cleaned) {
