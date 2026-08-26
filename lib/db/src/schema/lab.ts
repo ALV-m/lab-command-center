@@ -34,6 +34,14 @@ export const computersTable = pgTable("lab_computers", {
   ipAddress: text("ip_address"),
   checkinRequired: boolean("checkin_required").notNull().default(false),
   remoteViewUntil: timestamp("remote_view_until", { withTimezone: true }),
+  manufacturer: text("manufacturer"),
+  model: text("model"),
+  serialNumber: text("serial_number"),
+  biosSerial: text("bios_serial"),
+  systemUUID: text("system_uuid"),
+  totalRAM: bigint("total_ram", { mode: "number" }),
+  cpuName: text("cpu_name"),
+  cpuCores: integer("cpu_cores"),
 });
 
 export const actionsTable = pgTable("lab_actions", {

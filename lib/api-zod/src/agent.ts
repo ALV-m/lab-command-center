@@ -28,6 +28,14 @@ export const AgentRegisterBody = zod.object({
   agentVersion: zod.string().max(50).optional(),
   macAddress: zod.string().max(64).nullish(),
   ipAddress: zod.string().max(64).nullish(),
+  manufacturer: zod.string().max(128).nullish(),
+  model: zod.string().max(128).nullish(),
+  serialNumber: zod.string().max(128).nullish(),
+  biosSerial: zod.string().max(128).nullish(),
+  systemUUID: zod.string().max(128).nullish(),
+  totalRAM: zod.number().nullish(),
+  cpuName: zod.string().max(128).nullish(),
+  cpuCores: zod.number().nullish(),
 });
 
 export const AgentRegisterResponse = zod.object({
@@ -51,6 +59,14 @@ export const AgentHeartbeatBody = zod.object({
   firewallProfiles: zod.string().nullish(),
   macAddress: zod.string().max(64).nullish(),
   ipAddress: zod.string().max(64).nullish(),
+  manufacturer: zod.string().max(128).nullish(),
+  model: zod.string().max(128).nullish(),
+  serialNumber: zod.string().max(128).nullish(),
+  biosSerial: zod.string().max(128).nullish(),
+  systemUUID: zod.string().max(128).nullish(),
+  totalRAM: zod.number().nullish(),
+  cpuName: zod.string().max(128).nullish(),
+  cpuCores: zod.number().nullish(),
 });
 
 export const AgentPendingAction = zod.object({

@@ -102,12 +102,21 @@ function Register-Agent {
   $hostname = $env:COMPUTERNAME
   $osName = 'Windows'
   try { $osName = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).Caption } catch {}
+  $hw = Get-HardwareFingerprint
   $reg = Invoke-ApiJson -Method 'POST' -Path '/api/agent/register' -Body @{
     name = $hostname
     os = $osName
     agentVersion = $script:AgentVersion
     macAddress = Get-LocalMacAddress
     ipAddress = Get-LocalIpAddress
+    manufacturer = $hw.manufacturer
+    model = $hw.model
+    serialNumber = $hw.serialNumber
+    biosSerial = $hw.biosSerial
+    systemUUID = $hw.systemUUID
+    totalRAM = $hw.totalRAM
+    cpuName = $hw.cpuName
+    cpuCores = $hw.cpuCores
   }
   $cfg = @{
     serverUrl = $ServerUrl
@@ -156,6 +165,31 @@ function Get-CurrentUser {
     } catch {}
   }
   return ''
+}
+
+function Get-HardwareFingerprint {
+  $hw = @{}
+  try {
+    $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+    $hw.manufacturer = $cs.Manufacturer
+    $hw.model = $cs.Model
+    $hw.totalRAM = [math]::Round($cs.TotalPhysicalMemory / 1MB)
+    $hw.cpuName = $cs.Name
+    $hw.cpuCores = $cs.NumberOfLogicalProcessors
+  } catch {}
+  try {
+    $bios = Get-CimInstance Win32_BIOS -ErrorAction Stop
+    $hw.serialNumber = $bios.SerialNumber
+  } catch {}
+  try {
+    $baseboard = Get-CimInstance Win32_BaseBoard -ErrorAction Stop
+    $hw.biosSerial = $baseboard.SerialNumber
+  } catch {}
+  try {
+    $uuid = (Get-CimInstance Win32_ComputerSystemProduct -ErrorAction Stop).UUID
+    $hw.systemUUID = $uuid
+  } catch {}
+  return $hw
 }
 
 function Ensure-LaunchHelper {
@@ -2342,6 +2376,15 @@ try {
         macAddress = Get-LocalMacAddress
         ipAddress = Get-LocalIpAddress
       }
+      $hw = Get-HardwareFingerprint
+      if ($hw.manufacturer) { $hbBody.manufacturer = $hw.manufacturer }
+      if ($hw.model) { $hbBody.model = $hw.model }
+      if ($hw.serialNumber) { $hbBody.serialNumber = $hw.serialNumber }
+      if ($hw.biosSerial) { $hbBody.biosSerial = $hw.biosSerial }
+      if ($hw.systemUUID) { $hbBody.systemUUID = $hw.systemUUID }
+      if ($hw.totalRAM) { $hbBody.totalRAM = $hw.totalRAM }
+      if ($hw.cpuName) { $hbBody.cpuName = $hw.cpuName }
+      if ($hw.cpuCores) { $hbBody.cpuCores = $hw.cpuCores }
       if ($null -ne $av.enabled) { $hbBody.avEnabled = $av.enabled }
       if ($av.signature) { $hbBody.avSignature = $av.signature }
       if ($av.lastScan) { $hbBody.avLastScanAt = $av.lastScan }

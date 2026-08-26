@@ -27,6 +27,8 @@ import {
   Ban,
   Camera,
   ChevronDown,
+  Cpu,
+  Download,
   FileUp,
   Keyboard,
   Lock,
@@ -99,6 +101,7 @@ function Computers() {
   const [deletePath, setDeletePath] = useState("");
   const [securityTarget, setSecurityTarget] = useState<Computer | null>(null);
   const [viewTarget, setViewTarget] = useState<Computer | null>(null);
+  const [hwTarget, setHwTarget] = useState<Computer | null>(null);
 
   const actionMutation = useCreateComputerAction({
     mutation: {
@@ -358,7 +361,20 @@ function Computers() {
                           onClick={() => runAction(computer, ComputerActionInputAction.remote_control)}
                         >
                           <MonitorPlay className="size-4" />
-                          Remote control (RDP)
+                          Enable RDP
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={!computer.ipAddress}
+                          onClick={() => {
+                            window.open(`/api/lab/computers/${computer.id}/rdp`, "_blank");
+                          }}
+                        >
+                          <Download className="size-4" />
+                          Download RDP file
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setHwTarget(computer)}>
+                          <Cpu className="size-4" />
+                          Hardware info…
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           disabled={actionMutation.isPending}
@@ -638,6 +654,53 @@ function Computers() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={hwTarget !== null} onOpenChange={(open) => !open && setHwTarget(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Hardware — {hwTarget?.name}</DialogTitle>
+            <DialogDescription>
+              Physical details reported by the agent on every heartbeat.
+            </DialogDescription>
+          </DialogHeader>
+          {hwTarget && (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+                <span className="font-medium text-muted-foreground">Manufacturer</span>
+                <span>{hwTarget.manufacturer || "—"}</span>
+                <span className="font-medium text-muted-foreground">Model</span>
+                <span>{hwTarget.model || "—"}</span>
+                <span className="font-medium text-muted-foreground">Serial (System)</span>
+                <span className="font-mono">{hwTarget.serialNumber || "—"}</span>
+                <span className="font-medium text-muted-foreground">Serial (Board)</span>
+                <span className="font-mono">{hwTarget.biosSerial || "—"}</span>
+                <span className="font-medium text-muted-foreground">System UUID</span>
+                <span className="font-mono text-xs break-all">{hwTarget.systemUUID || "—"}</span>
+                <span className="font-medium text-muted-foreground">CPU</span>
+                <span>{hwTarget.cpuName || "—"}</span>
+                <span className="font-medium text-muted-foreground">Cores (logical)</span>
+                <span>{hwTarget.cpuCores ?? "—"}</span>
+                <span className="font-medium text-muted-foreground">RAM</span>
+                <span>{hwTarget.totalRAM != null ? `${hwTarget.totalRAM} GB` : "—"}</span>
+                <span className="font-medium text-muted-foreground">IP Address</span>
+                <span className="font-mono">{hwTarget.ipAddress || "—"}</span>
+                <span className="font-medium text-muted-foreground">MAC Address</span>
+                <span className="font-mono">{hwTarget.macAddress || "—"}</span>
+                <span className="font-medium text-muted-foreground">OS</span>
+                <span>{hwTarget.os}</span>
+                <span className="font-medium text-muted-foreground">Agent Version</span>
+                <span>{hwTarget.agentVersion || "—"}</span>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHwTarget(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {viewTarget ? (
         <RemoteViewDialog
           computer={viewTarget}

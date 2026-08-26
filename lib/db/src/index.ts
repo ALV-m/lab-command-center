@@ -141,6 +141,14 @@ const TENANT_DDL_STATEMENTS = [
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS ip_address text;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS checkin_required boolean NOT NULL DEFAULT false;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS remote_view_until timestamptz;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS manufacturer text;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS model text;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS serial_number text;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS bios_serial text;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS system_uuid text;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS total_ram bigint;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS cpu_name text;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS cpu_cores integer;
   `,
   `
   CREATE TABLE IF NOT EXISTS lab_actions (

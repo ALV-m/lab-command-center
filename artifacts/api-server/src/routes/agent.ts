@@ -139,6 +139,14 @@ router.post("/agent/register", async (req, res): Promise<void> => {
         os: body.data.os ?? existing.os,
         macAddress: body.data.macAddress ?? existing.macAddress,
         ipAddress: body.data.ipAddress ?? existing.ipAddress,
+        manufacturer: body.data.manufacturer ?? existing.manufacturer,
+        model: body.data.model ?? existing.model,
+        serialNumber: body.data.serialNumber ?? existing.serialNumber,
+        biosSerial: body.data.biosSerial ?? existing.biosSerial,
+        systemUUID: body.data.systemUUID ?? existing.systemUUID,
+        totalRAM: body.data.totalRAM ?? existing.totalRAM,
+        cpuName: body.data.cpuName ?? existing.cpuName,
+        cpuCores: body.data.cpuCores ?? existing.cpuCores,
       })
       .where(eq(computersTable.id, existing.id))
       .returning();
@@ -156,6 +164,14 @@ router.post("/agent/register", async (req, res): Promise<void> => {
         agentVersion: body.data.agentVersion ?? null,
         macAddress: body.data.macAddress ?? null,
         ipAddress: body.data.ipAddress ?? null,
+        manufacturer: body.data.manufacturer ?? null,
+        model: body.data.model ?? null,
+        serialNumber: body.data.serialNumber ?? null,
+        biosSerial: body.data.biosSerial ?? null,
+        systemUUID: body.data.systemUUID ?? null,
+        totalRAM: body.data.totalRAM ?? null,
+        cpuName: body.data.cpuName ?? null,
+        cpuCores: body.data.cpuCores ?? null,
       })
       .returning();
     computer = inserted;
@@ -230,6 +246,14 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
       firewallProfiles: body.data.firewallProfiles ?? computer.firewallProfiles,
       macAddress: body.data.macAddress ?? computer.macAddress,
       ipAddress: body.data.ipAddress ?? computer.ipAddress,
+      manufacturer: body.data.manufacturer ?? computer.manufacturer,
+      model: body.data.model ?? computer.model,
+      serialNumber: body.data.serialNumber ?? computer.serialNumber,
+      biosSerial: body.data.biosSerial ?? computer.biosSerial,
+      systemUUID: body.data.systemUUID ?? computer.systemUUID,
+      totalRAM: body.data.totalRAM ?? computer.totalRAM,
+      cpuName: body.data.cpuName ?? computer.cpuName,
+      cpuCores: body.data.cpuCores ?? computer.cpuCores,
     })
     .where(eq(computersTable.id, computer.id));
 

@@ -67,6 +67,26 @@ export interface Computer {
   firewallEnabled: boolean | null;
   /** @nullable */
   firewallProfiles: string | null;
+  /** @nullable */
+  manufacturer: string | null;
+  /** @nullable */
+  model: string | null;
+  /** @nullable */
+  serialNumber: string | null;
+  /** @nullable */
+  biosSerial: string | null;
+  /** @nullable */
+  systemUUID: string | null;
+  /** @nullable */
+  totalRAM: number | null;
+  /** @nullable */
+  cpuName: string | null;
+  /** @nullable */
+  cpuCores: number | null;
+  /** @nullable */
+  ipAddress: string | null;
+  /** @nullable */
+  macAddress: string | null;
 }
 
 export type ComputerActionInputAction = typeof ComputerActionInputAction[keyof typeof ComputerActionInputAction];
@@ -85,11 +105,13 @@ export const ComputerActionInputAction = {
   allow_usb: 'allow_usb',
   push_file: 'push_file',
   delete_file: 'delete_file',
+  list_files: 'list_files',
   av_scan: 'av_scan',
   av_update: 'av_update',
   av_toggle: 'av_toggle',
   fw_enable: 'fw_enable',
   fw_disable: 'fw_disable',
+  wol_relay: 'wol_relay',
 } as const;
 
 export interface ComputerActionInput {

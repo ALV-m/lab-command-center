@@ -70,6 +70,16 @@ const mapComputer = (computer: typeof computersTable.$inferSelect) => ({
   avScanState: computer.avScanState,
   firewallEnabled: computer.firewallEnabled,
   firewallProfiles: computer.firewallProfiles,
+  manufacturer: computer.manufacturer,
+  model: computer.model,
+  serialNumber: computer.serialNumber,
+  biosSerial: computer.biosSerial,
+  systemUUID: computer.systemUUID,
+  totalRAM: computer.totalRAM,
+  cpuName: computer.cpuName,
+  cpuCores: computer.cpuCores,
+  ipAddress: computer.ipAddress,
+  macAddress: computer.macAddress,
 });
 
 const mapAlert = (alert: typeof alertsTable.$inferSelect) => ({
@@ -463,6 +473,69 @@ router.put("/lab/computers/:computerId/usb-mode", async (req, res): Promise<void
       usbState: updated.usbState,
     }),
   );
+});
+
+router.get("/lab/computers/:computerId/rdp", async (req, res): Promise<void> => {
+  const computerId = Number(req.params.computerId);
+  if (!Number.isFinite(computerId) || computerId <= 0) {
+    res.status(400).json({ error: "Invalid computer ID" });
+    return;
+  }
+
+  const [computer] = await db
+    .select()
+    .from(computersTable)
+    .where(eq(computersTable.id, computerId))
+    .limit(1);
+  if (!computer) {
+    res.status(404).json({ error: "Computer not found" });
+    return;
+  }
+
+  const ip = computer.ipAddress;
+  if (!ip) {
+    res.status(400).json({ error: "Computer IP address unknown; agent must connect first." });
+    return;
+  }
+
+  const rdpContent = [
+    "screen mode id:i:2",
+    "use multimon:i:0",
+    "desktopwidth:i:1920",
+    "desktopheight:i:1080",
+    "session bpp:i:32",
+    "winposv:i:0,1,0,0,1920,1080",
+    "compression:i:1",
+    "keyboardhook:i:2",
+    "audiocapturemode:i:0",
+    "videoplaybackmode:i:1",
+    "connection type:i:7",
+    "networkautodetect:i:1",
+    "bandwidthautodetect:i:1",
+    `displayconnectionbar:i:1`,
+    `full address:s:${ip}:3389`,
+    `alternate full address:s:${ip}:3389`,
+    `username:s:${computer.userName ?? ""}`,
+    "prompt for credentials:i:1",
+    "negotiate security layer:i:1",
+    "autoreconnection enabled:i:1",
+    "authentication level:i:2",
+    "prompt for credentials on client:i:1",
+    "servername:s:",
+    "gatewayhostname:s:",
+    "gatewayusagemethod:i:4",
+    "gatewaycredentialssource:i:4",
+    "gatewayprofileusagemethod:i:0",
+    "use redirection server name:i:0",
+    "rdgiskdcproxy:i:0",
+    "kdcproxyname:s:",
+    `drivestoredirect:s:`,
+    "drivestoredirect:s:",
+  ].join("\r\n");
+
+  res.setHeader("Content-Type", "application/x-rdp");
+  res.setHeader("Content-Disposition", `attachment; filename="${computer.name}.rdp"`);
+  res.send(rdpContent);
 });
 
 export default router;

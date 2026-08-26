@@ -32,4 +32,24 @@ export interface Computer {
   firewallEnabled: boolean | null;
   /** @nullable */
   firewallProfiles: string | null;
+  /** @nullable */
+  manufacturer: string | null;
+  /** @nullable */
+  model: string | null;
+  /** @nullable */
+  serialNumber: string | null;
+  /** @nullable */
+  biosSerial: string | null;
+  /** @nullable */
+  systemUUID: string | null;
+  /** @nullable */
+  totalRAM: number | null;
+  /** @nullable */
+  cpuName: string | null;
+  /** @nullable */
+  cpuCores: number | null;
+  /** @nullable */
+  ipAddress: string | null;
+  /** @nullable */
+  macAddress: string | null;
 }

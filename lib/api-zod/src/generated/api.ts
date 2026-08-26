@@ -52,7 +52,17 @@ export const GetComputersResponseItem = zod.object({
   "avLastScanAt": zod.string().nullable(),
   "avScanState": zod.string().nullable(),
   "firewallEnabled": zod.boolean().nullable(),
-  "firewallProfiles": zod.string().nullable()
+  "firewallProfiles": zod.string().nullable(),
+  "manufacturer": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "serialNumber": zod.string().nullable(),
+  "biosSerial": zod.string().nullable(),
+  "systemUUID": zod.string().nullable(),
+  "totalRAM": zod.number().nullable(),
+  "cpuName": zod.string().nullable(),
+  "cpuCores": zod.number().nullable(),
+  "ipAddress": zod.string().nullable(),
+  "macAddress": zod.string().nullable()
 })
 export const GetComputersResponse = zod.array(GetComputersResponseItem)
 
