@@ -2078,42 +2078,52 @@ function Ensure-SharedAccount {
 }
 
 function Block-PasswordChangeUI {
-  # Disable "Change a password" on the Ctrl+Alt+Del screen via Group Policy
-  # and disable the "Switch user" button so users stay on the login form.
   $gpoKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+  $winlogonKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
   try {
     if (-not (Test-Path -LiteralPath $gpoKey)) { New-Item -Path $gpoKey -Force | Out-Null }
-    # Hide "Change a password" from Ctrl+Alt+Del (value 1 = disable)
+    # Disable Ctrl+Alt+Del requirement entirely (no security screen at logon)
+    Set-ItemProperty -LiteralPath $gpoKey -Name 'DisableCad' -Value 1 -Type DWord -Force
+    # Hide "Change a password" from Ctrl+Alt+Del if it ever appears
     Set-ItemProperty -LiteralPath $gpoKey -Name 'DisableChangePassword' -Value 1 -Type DWord -Force
-    # Hide "Switch user" from Ctrl+Alt+Del
+    # Hide "Switch user"
     Set-ItemProperty -LiteralPath $gpoKey -Name 'HideFastUserSwitching' -Value 1 -Type DWord -Force
-    Write-Log 'Blocked password change UI and fast user switching.'
+    # Disable logon screen background image (faster boot to login form)
+    Set-ItemProperty -LiteralPath $gpoKey -Name 'DisableLogonBackgroundImage' -Value 1 -Type DWord -Force
+    Write-Log 'Disabled Ctrl+Alt+Del, password change, switch user, and login background.'
   } catch {
     Write-Log ('Could not block password change UI: {0}' -f $_.Exception.Message)
   }
-  # Disable the Windows lock screen so users cannot reach the password page
+  # Disable the Windows lock screen entirely
   $personalKey = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Personalization'
   try {
     if (-not (Test-Path -LiteralPath $personalKey)) { New-Item -Path $personalKey -Force | Out-Null }
     Set-ItemProperty -LiteralPath $personalKey -Name 'NoLockScreen' -Value 1 -Type DWord -Force
   } catch {}
-  # Also set the machine-wide policy to disable lock screen
   $machineKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization'
   try {
     if (-not (Test-Path -LiteralPath $machineKey)) { New-Item -Path $machineKey -Force | Out-Null }
     Set-ItemProperty -LiteralPath $machineKey -Name 'NoLockScreen' -Value 1 -Type DWord -Force
   } catch {}
+  # Skip the "Last interactive user" screen — go straight to login form
+  try {
+    if (-not (Test-Path -LiteralPath $winlogonKey)) { New-Item -Path $winlogonKey -Force | Out-Null }
+    Set-ItemProperty -LiteralPath $winlogonKey -Name 'DisplayLastLogonInfo' -Value 0 -Type DWord -Force
+  } catch {}
 }
 
 function Unblock-PasswordChangeUI {
   $gpoKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+  $winlogonKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
   try {
     if (Test-Path -LiteralPath $gpoKey) {
+      Remove-ItemProperty -LiteralPath $gpoKey -Name 'DisableCad' -Force -ErrorAction SilentlyContinue
       Remove-ItemProperty -LiteralPath $gpoKey -Name 'DisableChangePassword' -Force -ErrorAction SilentlyContinue
       Remove-ItemProperty -LiteralPath $gpoKey -Name 'HideFastUserSwitching' -Force -ErrorAction SilentlyContinue
+      Remove-ItemProperty -LiteralPath $gpoKey -Name 'DisableLogonBackgroundImage' -Force -ErrorAction SilentlyContinue
     }
   } catch {}
-  # Re-enable lock screen
+  try { Remove-ItemProperty -LiteralPath $winlogonKey -Name 'DisplayLastLogonInfo' -Force -ErrorAction SilentlyContinue } catch {}
   $personalKey = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Personalization'
   try { Remove-ItemProperty -LiteralPath $personalKey -Name 'NoLockScreen' -Force -ErrorAction SilentlyContinue } catch {}
   $machineKey = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization'
