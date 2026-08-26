@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "node:http";
+import type { RawData } from "ws";
 import { eq } from "drizzle-orm";
 import { db, computersTable } from "@workspace/db";
 import { logger } from "./logger";
@@ -7,26 +8,25 @@ import { logger } from "./logger";
 // ---------------------------------------------------------------------------
 // WebSocket tunnel — bridges dashboard ↔ agent for real-time remote view.
 //
-// Agent uploads screenshots via the existing HTTP endpoint.  When a dashboard
-// is subscribed, the server forwards each frame over WebSocket instantly
-// instead of waiting for the dashboard to poll.
+// Two modes of frame delivery:
+//   1. JPEG frames  — agent uploads via HTTP, server forwards as JSON {type:"frame",data:base64}
+//   2. H.264 video  — agent streams MPEG-TS binary chunks directly over WS
 //
 // Protocol (JSON messages over WS):
 //
-//   Agent → Server (via HTTP screenshot endpoint, forwarded as WS frame):
-//     { type: "frame", data: string }   // base64 JPEG
-//
 //   Dashboard → Server:
-//     { type: "subscribe", computerId: number }
 //     { type: "start_view" }
 //     { type: "stop_view" }
 //     { type: "input", payload: object }
+//     { type: "set_mode", mode: "jpeg" | "h264" }
 //
 //   Server → Dashboard:
-//     { type: "frame", data: string }
+//     { type: "frame", data: string }         // base64 JPEG
 //     { type: "status", connected: boolean }
 //     { type: "input_ack", ok: boolean, detail: string }
 //     { type: "error", message: string }
+//
+//   Binary messages: forwarded as-is (MPEG-TS chunks from agent)
 // ---------------------------------------------------------------------------
 
 interface AgentConn {
@@ -38,6 +38,7 @@ interface DashboardConn {
   ws: WebSocket;
   computerId: number;
   streaming: boolean;
+  mode: "jpeg" | "h264";
 }
 
 const agents = new Map<number, AgentConn>();
@@ -62,8 +63,18 @@ export function broadcastFrame(
   if (!set || set.size === 0) return;
   const msg = JSON.stringify({ type: "frame", data: base64Data });
   for (const d of set) {
-    if (d.ws.readyState === WebSocket.OPEN && d.streaming) {
+    if (d.ws.readyState === WebSocket.OPEN && d.streaming && d.mode === "jpeg") {
       d.ws.send(msg);
+    }
+  }
+}
+
+function broadcastBinary(computerId: number, data: Buffer): void {
+  const set = dashboardByComputer.get(computerId);
+  if (!set || set.size === 0) return;
+  for (const d of set) {
+    if (d.ws.readyState === WebSocket.OPEN && d.streaming && d.mode === "h264") {
+      d.ws.send(data);
     }
   }
 }
@@ -108,7 +119,18 @@ export function attachWebSocket(server: Server): void {
 function handleAgentConnection(ws: WebSocket, _token: string): void {
   let computerId = -1;
 
-  ws.on("message", (raw) => {
+  ws.on("message", (raw: RawData, isBinary: boolean) => {
+    // Binary messages = MPEG-TS chunks → forward to dashboards
+    if (isBinary) {
+      if (computerId > 0) {
+        const buf = Buffer.isBuffer(raw)
+          ? raw
+          : Buffer.from(raw instanceof ArrayBuffer ? new Uint8Array(raw) : String(raw));
+        broadcastBinary(computerId, buf);
+      }
+      return;
+    }
+
     let msg: Record<string, unknown>;
     try {
       msg = JSON.parse(String(raw));
@@ -130,7 +152,6 @@ function handleAgentConnection(ws: WebSocket, _token: string): void {
     }
 
     if (computerId > 0) {
-      // Agent can send input_ack results
       if (msg.type === "input_ack") {
         broadcastToDashboards(computerId, {
           type: "input_ack",
@@ -166,7 +187,7 @@ function broadcastToDashboards(
 }
 
 function handleDashboardConnection(ws: WebSocket, computerId: number): void {
-  const conn: DashboardConn = { ws, computerId, streaming: false };
+  const conn: DashboardConn = { ws, computerId, streaming: false, mode: "jpeg" };
 
   let set = dashboardByComputer.get(computerId);
   if (!set) {
@@ -177,7 +198,8 @@ function handleDashboardConnection(ws: WebSocket, computerId: number): void {
 
   sendJson(ws, { type: "status", connected: agents.has(computerId) });
 
-  ws.on("message", (raw) => {
+  ws.on("message", (raw: RawData, isBinary: boolean) => {
+    if (isBinary) return; // dashboards don't send binary
     let msg: Record<string, unknown>;
     try {
       msg = JSON.parse(String(raw));
@@ -186,21 +208,24 @@ function handleDashboardConnection(ws: WebSocket, computerId: number): void {
     }
 
     switch (msg.type) {
+      case "set_mode": {
+        if (msg.mode === "h264" || msg.mode === "jpeg") {
+          conn.mode = msg.mode;
+        }
+        break;
+      }
       case "start_view": {
         conn.streaming = true;
-        // Set remoteViewUntil so the agent starts streaming
         const until = new Date(Date.now() + 120_000);
         db.update(computersTable)
           .set({ remoteViewUntil: until })
           .where(eq(computersTable.id, computerId))
           .catch(() => {});
-        // Also tell the agent directly if connected
         sendToAgent(computerId, { type: "start_view" });
         break;
       }
       case "stop_view": {
         conn.streaming = false;
-        // Clear remoteViewUntil if no other dashboards are streaming
         const anyStreaming = set && [...set].some((d) => d.streaming);
         if (!anyStreaming) {
           db.update(computersTable)
@@ -212,7 +237,6 @@ function handleDashboardConnection(ws: WebSocket, computerId: number): void {
         break;
       }
       case "input": {
-        // Forward input to agent via WebSocket if connected, otherwise queue as action
         sendToAgent(computerId, {
           type: "input",
           payload: msg.payload,
