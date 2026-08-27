@@ -50,7 +50,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.16.0'
+$script:AgentVersion = '1.17.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $PendingPath = Join-Path $ConfigDir 'pending\checkins.json'
@@ -310,10 +310,22 @@ function Get-Peripherals {
         if (-not $dev.InstanceId) { continue }
         $present = ($dev.Status -eq 'OK') -and ($dev.Present -eq $true)
         $name = if ($dev.FriendlyName) { $dev.FriendlyName } else { $dev.InstanceId }
+        $serial = ''
+        try {
+          $idu = Get-CimInstance -ClassName Win32_PnPEntity -Filter ("DeviceID='{0}'" -f $dev.InstanceId.Replace("'", "''")) -ErrorAction SilentlyContinue
+          if ($idu -and $idu.PNPDeviceID) {
+            $parts = @($idu.PNPDeviceID -split '\\')
+            if ($parts.Count -ge 3) { $serial = $parts[-1] }
+          }
+          if (-not $serial -and $dev.InstanceId -match '\\[^\\]+\\[^\\]+\\(?<serial>[^\\]+)$') {
+            $serial = $Matches['serial']
+          }
+        } catch {}
         $result += [PSCustomObject]@{
           kind = $kindMap[$cls]
           name = $name
           instanceId = $dev.InstanceId
+          serial = $serial
           present = $present
         }
       }
@@ -3088,6 +3100,7 @@ try {
                 Save-Config $cfgNow
               }
               $detail += ' instanceId={0} (blocked, awaiting approval)' -f $instanceId
+              Show-Message ('USB drive {0}: ({1}) was detected and is blocked. An administrator must approve it before it can be used.' -f $drive.Letter, $drive.Label)
               Write-Log ('USB drive blocked: {0}' -f $detail)
             } else {
               try {
@@ -3096,6 +3109,7 @@ try {
                 if ($item) { $item.InvokeVerb('Eject') }
               } catch {}
               $detail += ' (ejected, awaiting approval)'
+              Show-Message ('USB drive {0}: ({1}) was detected and was not allowed to start. An administrator must approve it before it can be used.' -f $drive.Letter, $drive.Label)
             }
           }
           $eventBody = @{ token = $config.token; type = 'usb_connected'; detail = $detail; message = $scanNote }
@@ -3159,7 +3173,7 @@ try {
         $pBody = @{ token = $config.token; user = $user }
         $pBody.devices = @()
         foreach ($dev in $peripherals) {
-          $pBody.devices += @{ kind = $dev.kind; name = $dev.name; instanceId = $dev.instanceId; present = $dev.present }
+          $pBody.devices += @{ kind = $dev.kind; name = $dev.name; instanceId = $dev.instanceId; serial = $dev.serial; present = $dev.present }
         }
         try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/peripherals' -Body $pBody | Out-Null } catch {}
       }

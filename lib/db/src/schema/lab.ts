@@ -116,6 +116,7 @@ export const peripheralsTable = pgTable("lab_peripherals", {
   kind: text("kind").notNull(),
   name: text("name").notNull(),
   instanceId: text("instance_id").notNull(),
+  serial: text("serial"),
   present: boolean("present").notNull().default(true),
   firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
   lastChangedAt: timestamp("last_changed_at", { withTimezone: true }).notNull().defaultNow(),

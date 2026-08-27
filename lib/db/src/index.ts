@@ -244,6 +244,7 @@ const TENANT_DDL_STATEMENTS = [
   `,
   `
   ALTER TABLE lab_peripherals ADD COLUMN IF NOT EXISTS last_changed_at timestamptz;
+  ALTER TABLE lab_peripherals ADD COLUMN IF NOT EXISTS serial text;
   CREATE UNIQUE INDEX IF NOT EXISTS lab_peripherals_computer_instance_idx
     ON lab_peripherals (computer_id, instance_id);
   `,

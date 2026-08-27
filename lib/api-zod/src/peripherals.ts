@@ -6,6 +6,7 @@ export const AgentPeripheral = zod.object({
   kind: PeripheralKind,
   name: zod.string().max(300),
   instanceId: zod.string().max(500),
+  serial: zod.string().max(300).nullish(),
   present: zod.boolean(),
 });
 
@@ -26,6 +27,7 @@ export const PeripheralItem = zod.object({
   kind: PeripheralKind,
   name: zod.string(),
   instanceId: zod.string(),
+  serial: zod.string().nullable(),
   present: zod.boolean(),
   firstSeenAt: zod.string(),
   lastChangedAt: zod.string(),

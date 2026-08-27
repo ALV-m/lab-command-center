@@ -13,6 +13,7 @@ interface ReportedDevice {
   kind: string;
   name: string;
   instanceId: string;
+  serial?: string | null;
   present: boolean;
 }
 
@@ -21,6 +22,9 @@ const iso = (value: Date | string | null | undefined) =>
 
 const kindLabel = (kind: string): string =>
   kind === "keyboard" ? "Keyboard" : kind === "mouse" ? "Mouse" : kind === "monitor" ? "Monitor" : "Display";
+
+const serialLabel = (device: ReportedDevice): string =>
+  device.serial?.trim() ? ` serial=${device.serial.trim()}` : "";
 
 async function recordDisconnect(
   computerName: string,
@@ -39,7 +43,7 @@ async function recordDisconnect(
     title: "Peripheral disconnected",
     detail: `${kindLabel(device.kind)} "${device.name}" disconnected on ${computerName}${
       who !== "unknown" ? ` (user: ${who})` : ""
-    } [${device.instanceId}]`,
+    } [${device.instanceId}]${serialLabel(device)}`,
     computerName,
     status: "open",
   });
@@ -101,10 +105,14 @@ router.post("/agent/peripherals", async (req, res): Promise<void> => {
     const prev = byInstance.get(device.instanceId);
     if (prev) {
       byInstance.delete(device.instanceId);
-      if (prev.present !== device.present) {
+      if (prev.present !== device.present || (device.serial?.trim() && prev.serial !== device.serial?.trim())) {
         await db
           .update(peripheralsTable)
-          .set({ present: device.present, lastChangedAt: now })
+          .set({
+            present: device.present,
+            serial: device.serial?.trim() || prev.serial,
+            lastChangedAt: now,
+          })
           .where(eq(peripheralsTable.id, prev.id));
         if (device.present) {
           await recordReconnect(computer.name, device, user);
@@ -119,6 +127,7 @@ router.post("/agent/peripherals", async (req, res): Promise<void> => {
         kind: device.kind,
         name: device.name,
         instanceId: device.instanceId,
+        serial: device.serial?.trim() || null,
         present: device.present,
         lastChangedAt: now,
       });
@@ -134,6 +143,7 @@ router.post("/agent/peripherals", async (req, res): Promise<void> => {
         kind: prev.kind,
         name: prev.name,
         instanceId: prev.instanceId,
+        serial: prev.serial,
         present: false,
       };
       await db

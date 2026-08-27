@@ -22,6 +22,7 @@ export interface Peripheral {
   kind: PeripheralKind;
   name: string;
   instanceId: string;
+  serial: string | null;
   present: boolean;
   firstSeenAt: string;
   lastChangedAt: string;

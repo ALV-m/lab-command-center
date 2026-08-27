@@ -69,6 +69,7 @@ function Peripherals() {
       const matchesSearch =
         term.length === 0 ||
         peripheral.name.toLowerCase().includes(term) ||
+        (peripheral.serial ?? "").toLowerCase().includes(term) ||
         peripheral.computerName.toLowerCase().includes(term);
       return matchesKind && matchesStatus && matchesSearch;
     });
@@ -166,6 +167,7 @@ function Peripherals() {
                 <TableHead>Computer</TableHead>
                 <TableHead>Kind</TableHead>
                 <TableHead>Device</TableHead>
+                <TableHead>Hardware ID</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>First seen</TableHead>
                 <TableHead>Last changed</TableHead>
@@ -184,6 +186,13 @@ function Peripherals() {
                       </span>
                     </TableCell>
                     <TableCell className="max-w-md truncate">{peripheral.name}</TableCell>
+                    <TableCell className="max-w-[16rem]">
+                      {peripheral.serial ? (
+                        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{peripheral.serial}</code>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <PeripheralStatusBadge present={peripheral.present} />
                     </TableCell>
