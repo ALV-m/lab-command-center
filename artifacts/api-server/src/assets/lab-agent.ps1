@@ -50,7 +50,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.14.0'
+$script:AgentVersion = '1.15.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $PendingPath = Join-Path $ConfigDir 'pending\checkins.json'
@@ -1265,6 +1265,46 @@ function Stop-Taskbar {
       }
     }
   } catch {}
+  Show-NativeTaskbar
+}
+
+function Hide-NativeTaskbar {
+  try {
+    $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3'
+    if (-not (Test-Path -LiteralPath $regPath)) { return }
+    $settings = Get-ItemProperty -LiteralPath $regPath -Name Settings -ErrorAction Stop
+    $bytes = [byte[]]$settings.Settings
+    if ($bytes.Length -ge 9) {
+      $bytes[8] = $bytes[8] -bor 0x02
+      Set-ItemProperty -LiteralPath $regPath -Name Settings -Value $bytes -Force -ErrorAction Stop
+    }
+    # Also disable taskbar thumbnail previews and edge swipe
+    $policies = 'HKCU:\Software\Policies\Microsoft\Windows\Explorer'
+    if (-not (Test-Path -LiteralPath $policies)) {
+      New-Item -ItemType Directory -Force -Path $policies -ErrorAction SilentlyContinue | Out-Null
+    }
+    Set-ItemProperty -LiteralPath $policies -Name 'NoPinningLibraryToTaskbar' -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
+    # Restart Explorer to apply
+    Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Start-Process explorer -ErrorAction SilentlyContinue
+  } catch {}
+}
+
+function Show-NativeTaskbar {
+  try {
+    $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3'
+    if (-not (Test-Path -LiteralPath $regPath)) { return }
+    $settings = Get-ItemProperty -LiteralPath $regPath -Name Settings -ErrorAction Stop
+    $bytes = [byte[]]$settings.Settings
+    if ($bytes.Length -ge 9) {
+      $bytes[8] = $bytes[8] -band (-bnot 0x02)
+      Set-ItemProperty -LiteralPath $regPath -Name Settings -Value $bytes -Force -ErrorAction Stop
+    }
+    Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    Start-Process explorer -ErrorAction SilentlyContinue
+  } catch {}
 }
 
 function Start-Taskbar {
@@ -1279,6 +1319,7 @@ function Start-Taskbar {
     Start-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
     Start-Sleep -Seconds 2
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+    Hide-NativeTaskbar
   } catch {
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
   }
@@ -3054,6 +3095,7 @@ try {
     }
   }
 } finally {
+  Stop-Taskbar
   Stop-PeripheralWarning
   Remove-Item -LiteralPath $LockPath -Force -ErrorAction SilentlyContinue
 }
