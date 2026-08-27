@@ -50,7 +50,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.12.0'
+$script:AgentVersion = '1.13.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $PendingPath = Join-Path $ConfigDir 'pending\checkins.json'
@@ -2343,6 +2343,16 @@ function Execute-Action {
         } catch {
           $result = @{ success = $false; detail = $_.Exception.Message }
         }
+        break
+      }
+      'shutdown' {
+        & shutdown.exe /s /t 0 /f 2>$null
+        $result = @{ success = $true; detail = 'Shutdown initiated.' }
+        break
+      }
+      'sleep' {
+        & rundll32.exe powrprof.dll,SetSuspendState 0,1,0 2>$null
+        $result = @{ success = $true; detail = 'Computer entering sleep mode.' }
         break
       }
       'fw_enable' {

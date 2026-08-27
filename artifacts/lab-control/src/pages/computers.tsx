@@ -36,6 +36,8 @@ import {
   MonitorPlay,
   MoreHorizontal,
   MousePointer2,
+  Moon,
+  Power,
   Radar,
   RefreshCcw,
   Search,
@@ -379,6 +381,20 @@ function Computers() {
                         >
                           <RefreshCcw className="size-4" />
                           Restart
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={actionMutation.isPending}
+                          onClick={() => runAction(computer, ComputerActionInputAction.shutdown)}
+                        >
+                          <Power className="size-4" />
+                          Shutdown
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={actionMutation.isPending}
+                          onClick={() => runAction(computer, ComputerActionInputAction.sleep)}
+                        >
+                          <Moon className="size-4" />
+                          Sleep
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           disabled={actionMutation.isPending}
