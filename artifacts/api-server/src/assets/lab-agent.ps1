@@ -50,7 +50,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.13.0'
+$script:AgentVersion = '1.14.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $PendingPath = Join-Path $ConfigDir 'pending\checkins.json'
@@ -349,6 +349,7 @@ public static class LccIdleHelper {
 $script:WarningScriptPath = Join-Path $ConfigDir 'peripheral-warning.ps1'
 $script:MessageScriptPath = Join-Path $ConfigDir 'message.ps1'
 $script:CheckinScriptPath = Join-Path $ConfigDir 'checkin-gate.ps1'
+$script:TaskbarScriptPath = Join-Path $ConfigDir 'taskbar.ps1'
 $script:CaptureLoopScriptPath = Join-Path $ConfigDir 'capture-loop.ps1'
 $script:CaptureLoopPidPath = Join-Path $ConfigDir 'frame-loop.pid'
 $script:FramePath = Join-Path $ConfigDir 'frame.jpg'
@@ -1109,6 +1110,180 @@ try {
   Set-Content -LiteralPath $script:CheckinScriptPath -Value $content -Encoding UTF8
 }
 
+function Ensure-TaskbarScript {
+  param([int]$IdleTimeoutMinutes = 15)
+  $content = @"
+param([string]$ServerUrl = '', [string]$ConfigPath = '', [int]$IdleTimeoutMinutes = 15)
+`$ErrorActionPreference = 'Stop'
+try {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  Add-Type -AssemblyName System.Windows.Forms
+  Add-Type -AssemblyName System.Drawing
+  Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class TaskbarIdleHelper {
+  [DllImport("user32.dll")]
+  public static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+  [StructLayout(LayoutKind.Sequential)]
+  public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+}
+"@
+} catch { exit 1 }
+
+function Get-IdleSeconds {
+  try {
+    `$lii = New-Object TaskbarIdleHelper+LASTINPUTINFO
+    `$lii.cbSize = [Runtime.InteropServices.Marshal]::SizeOf(`$lii)
+    [TaskbarIdleHelper]::GetLastInputInfo([ref]`$lii) | Out-Null
+    `$idle = ([Environment]::TickCount - [int]`$lii.dwTime) / 1000
+    if (`$idle -lt 0) { `$idle = 0 }
+    return [int]`$idle
+  } catch { return 0 }
+}
+
+`$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+`$barHeight = 40
+
+`$form = New-Object System.Windows.Forms.Form
+`$form.Text = 'LabCC Taskbar'
+`$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+`$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+`$form.Location = New-Object System.Drawing.Point(0, (`$screen.Height - `$barHeight))
+`$form.Size = New-Object System.Drawing.Size(`$screen.Width, `$barHeight)
+`$form.TopMost = `$true
+`$form.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 36)
+`$form.ShowInTaskbar = `$false
+`$form.KeyPreview = `$true
+
+`$form.Add_KeyDown({
+  param(`$s, `$e)
+  if (`$e.KeyCode -eq [System.Windows.Forms.Keys]::Escape) { `$e.SuppressKeyPress = `$true }
+  if (`$e.Alt -and `$e.KeyCode -eq [System.Windows.Forms.Keys]::F4) { `$e.SuppressKeyPress = `$true }
+})
+`$form.Add_FormClosing({ param(`$s, `$e) `$e.Cancel = `$true })
+
+function New-TaskbarButton {
+  param([string]$Text, [System.Drawing.Color]$BgColor)
+  `$btn = New-Object System.Windows.Forms.Button
+  `$btn.Text = $Text
+  `$btn.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+  `$btn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+  `$btn.FlatAppearance.BorderSize = 0
+  `$btn.BackColor = `$BgColor
+  `$btn.ForeColor = [System.Drawing.Color]::White
+  `$btn.Height = `$barHeight - 8
+  `$btn.AutoSize = `$true
+  `$btn.Padding = New-Object System.Windows.Forms.Padding(14, 0, 14, 0)
+  `$btn.Margin = New-Object System.Windows.Forms.Padding(4, 0, 4, 0)
+  `$btn.Cursor = [System.Windows.Forms.Cursors]::Hand
+  return `$btn
+}
+
+`$leftPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+`$leftPanel.Dock = [System.Windows.Forms.DockStyle]::Left
+`$leftPanel.AutoSize = `$true
+`$leftPanel.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
+`$leftPanel.WrapContents = `$false
+`$leftPanel.BackColor = [System.Drawing.Color]::Transparent
+`$leftPanel.Padding = New-Object System.Windows.Forms.Padding(6, 0, 0, 0)
+`$leftPanel.Height = `$barHeight
+
+`$lbl = New-Object System.Windows.Forms.Label
+`$lbl.Text = 'Lab Command Center'
+`$lbl.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+`$lbl.ForeColor = [System.Drawing.Color]::FromArgb(160, 160, 170)
+`$lbl.AutoSize = `$true
+`$lbl.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+`$lbl.Margin = New-Object System.Windows.Forms.Padding(8, 0, 16, 0)
+`$leftPanel.Controls.Add(`$lbl)
+
+`$rightPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+`$rightPanel.Dock = [System.Windows.Forms.DockStyle]::Right
+`$rightPanel.AutoSize = `$true
+`$rightPanel.FlowDirection = [System.Windows.Forms.FlowDirection]::RightToLeft
+`$rightPanel.WrapContents = `$false
+`$rightPanel.BackColor = [System.Drawing.Color]::Transparent
+`$rightPanel.Padding = New-Object System.Windows.Forms.Padding(0, 0, 6, 0)
+`$rightPanel.Height = `$barHeight
+`$rightPanel.Width = 400
+
+`$btnSleep = New-TaskbarButton -Text 'Sleep' -BgColor ([System.Drawing.Color]::FromArgb(50, 50, 58))
+`$btnSleep.Add_Click({
+  try { & rundll32.exe powrprof.dll,SetSuspendState 0,1,0 } catch {}
+})
+`$rightPanel.Controls.Add(`$btnSleep)
+
+`$btnSwitch = New-TaskbarButton -Text 'Switch User' -BgColor ([System.Drawing.Color]::FromArgb(50, 50, 58))
+`$btnSwitch.Add_Click({
+  try { & rundll32.exe user32.dll,LockWorkStation } catch {}
+})
+`$rightPanel.Controls.Add(`$btnSwitch)
+
+`$btnLogout = New-TaskbarButton -Text 'Logout' -BgColor ([System.Drawing.Color]::FromArgb(180, 40, 40))
+`$btnLogout.Add_Click({
+  try { & logoff.exe } catch {}
+})
+`$rightPanel.Controls.Add(`$btnLogout)
+
+`$form.Controls.Add(`$leftPanel)
+`$form.Controls.Add(`$rightPanel)
+
+`$idleTimer = New-Object System.Windows.Forms.Timer
+`$idleTimer.Interval = 30000
+`$idleTimer.Add_Tick({
+  if (`$IdleTimeoutMinutes -le 0) { return }
+  `$idle = Get-IdleSeconds
+  if (`$idle -ge `$IdleTimeoutMinutes * 60) {
+    `$idleTimer.Stop()
+    try { & rundll32.exe powrprof.dll,SetSuspendState 0,1,0 } catch {}
+  }
+})
+`$idleTimer.Start()
+
+try { [System.Windows.Forms.Application]::Run(`$form) } catch { exit 1 }
+"@
+  Set-Content -LiteralPath $script:TaskbarScriptPath -Value $content -Encoding UTF8
+}
+
+function Get-TaskbarRunning {
+  try {
+    $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue)
+    foreach ($proc in $procs) {
+      if ($proc.CommandLine -like '*taskbar.ps1*') { return $true }
+    }
+  } catch {}
+  return $false
+}
+
+function Stop-Taskbar {
+  try {
+    $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue)
+    foreach ($proc in $procs) {
+      if ($proc.CommandLine -like '*taskbar.ps1*') {
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+      }
+    }
+  } catch {}
+}
+
+function Start-Taskbar {
+  param([string]$UserName, [int]$IdleTimeoutMinutes = 15)
+  if (-not $UserName) { return }
+  if (Get-TaskbarRunning) { return }
+  Ensure-TaskbarScript -IdleTimeoutMinutes $IdleTimeoutMinutes
+  $argLine = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -ServerUrl "{1}" -ConfigPath "{2}" -IdleTimeoutMinutes {3}' -f $script:TaskbarScriptPath, $ServerUrl, $ConfigPath, $IdleTimeoutMinutes
+  $taskName = 'LabCC-Taskbar-' + [Guid]::NewGuid().ToString('N')
+  if (-not (New-InteractiveGateTask -TaskName $taskName -UserName $UserName -ArgumentList $argLine)) { return }
+  try {
+    Start-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+    Start-Sleep -Seconds 2
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+  } catch {
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+  }
+}
+
 function Get-CheckinGateRunning {
   try {
     $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue)
@@ -1462,6 +1637,7 @@ function Update-CheckinGate {
       $cfgNow | Add-Member -NotePropertyName gateSession -NotePropertyValue $sessionToken -Force
       Save-Config $cfgNow
     } elseif ($gateNeeded) {
+      Stop-Taskbar
       Show-CheckinGate -UserName $user
       # Give the gate a moment to come up. Only remember the session as
       # "gated" once a checkin-gate process is actually running, so a launch
@@ -1482,6 +1658,17 @@ function Update-CheckinGate {
           $evBody = @{ token = $config.token; type = 'gate'; message = ('Check-in gate launch pending, will retry (user {0} on {1})' -f $user, $env:COMPUTERNAME); detail = ('gateNeeded={0} sessionToken={1} gateSession={2}' -f $gateNeeded, $sessionToken, $gateSession) }
           try { Invoke-ApiJson -Method 'POST' -Path '/api/agent/events' -Body $evBody | Out-Null } catch {}
         }
+      }
+    }
+
+    # Start taskbar after successful check-in (gate no longer needed).
+    if (-not $gateNeeded -and $user -and -not $isSystemUser) {
+      if (-not (Get-TaskbarRunning)) {
+        $idleMinutes = 15
+        if ($Hb -and $null -ne $Hb.computer -and $Hb.computer.idleLogoutMinutes -and ([int]$Hb.computer.idleLogoutMinutes) -gt 0) {
+          $idleMinutes = [int]$Hb.computer.idleLogoutMinutes
+        }
+        Start-Taskbar -UserName $user -IdleTimeoutMinutes $idleMinutes
       }
     }
   } catch {
