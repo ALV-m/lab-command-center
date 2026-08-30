@@ -1124,9 +1124,9 @@ try {
 
 function Ensure-TaskbarScript {
   param([int]$IdleTimeoutMinutes = 15)
-  $content = @"
+  $content = @'
 param([string]$ServerUrl = '', [string]$ConfigPath = '', [int]$IdleTimeoutMinutes = 15)
-`$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 try {
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
   Add-Type -AssemblyName System.Windows.Forms
@@ -1145,112 +1145,112 @@ public static class TaskbarIdleHelper {
 
 function Get-IdleSeconds {
   try {
-    `$lii = New-Object TaskbarIdleHelper+LASTINPUTINFO
-    `$lii.cbSize = [Runtime.InteropServices.Marshal]::SizeOf(`$lii)
-    [TaskbarIdleHelper]::GetLastInputInfo([ref]`$lii) | Out-Null
-    `$idle = ([Environment]::TickCount - [int]`$lii.dwTime) / 1000
-    if (`$idle -lt 0) { `$idle = 0 }
-    return [int]`$idle
+    $lii = New-Object TaskbarIdleHelper+LASTINPUTINFO
+    $lii.cbSize = [Runtime.InteropServices.Marshal]::SizeOf($lii)
+    [TaskbarIdleHelper]::GetLastInputInfo([ref]$lii) | Out-Null
+    $idle = ([Environment]::TickCount - [int]$lii.dwTime) / 1000
+    if ($idle -lt 0) { $idle = 0 }
+    return [int]$idle
   } catch { return 0 }
 }
 
-`$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-`$barHeight = 48
+$screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$barHeight = 48
 
-`$form = New-Object System.Windows.Forms.Form
-`$form.Text = 'LabCC Taskbar'
-`$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
-`$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
-`$form.Location = New-Object System.Drawing.Point(0, (`$screen.Height - `$barHeight))
-`$form.Size = New-Object System.Drawing.Size(`$screen.Width, `$barHeight)
-`$form.TopMost = `$true
-`$form.BackColor = [System.Drawing.Color]::FromArgb(24, 24, 28)
-`$form.ShowInTaskbar = `$false
-`$form.KeyPreview = `$true
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'LabCC Taskbar'
+$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+$form.Location = New-Object System.Drawing.Point(0, ($screen.Height - $barHeight))
+$form.Size = New-Object System.Drawing.Size($screen.Width, $barHeight)
+$form.TopMost = $true
+$form.BackColor = [System.Drawing.Color]::FromArgb(24, 24, 28)
+$form.ShowInTaskbar = $false
+$form.KeyPreview = $true
 
-`$form.Add_KeyDown({
-  param(`$s, `$e)
-  if (`$e.KeyCode -eq [System.Windows.Forms.Keys]::Escape) { `$e.SuppressKeyPress = `$true }
-  if (`$e.Alt -and `$e.KeyCode -eq [System.Windows.Forms.Keys]::F4) { `$e.SuppressKeyPress = `$true }
+$form.Add_KeyDown({
+  param($s, $e)
+  if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Escape) { $e.SuppressKeyPress = $true }
+  if ($e.Alt -and $e.KeyCode -eq [System.Windows.Forms.Keys]::F4) { $e.SuppressKeyPress = $true }
 })
-`$form.Add_FormClosing({ param(`$s, `$e) `$e.Cancel = `$true })
+$form.Add_FormClosing({ param($s, $e) $e.Cancel = $true })
 
-`$accentColor = [System.Drawing.Color]::FromArgb(0, 120, 215)
-`$hoverColor = [System.Drawing.Color]::FromArgb(55, 55, 62)
-`$textColor = [System.Drawing.Color]::FromArgb(220, 220, 225)
-`$dimTextColor = [System.Drawing.Color]::FromArgb(140, 140, 150)
+$accentColor = [System.Drawing.Color]::FromArgb(0, 120, 215)
+$hoverColor = [System.Drawing.Color]::FromArgb(55, 55, 62)
+$textColor = [System.Drawing.Color]::FromArgb(220, 220, 225)
+$dimTextColor = [System.Drawing.Color]::FromArgb(140, 140, 150)
 
 function New-TaskbarButton {
   param([string]$Text, [System.Drawing.Color]$BgColor, [int]$W = 0, [int]$H = 0)
-  `$btn = New-Object System.Windows.Forms.Button
-  `$btn.Text = $Text
-  `$btn.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
-  `$btn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-  `$btn.FlatAppearance.BorderSize = 0
-  `$btn.BackColor = `$BgColor
-  `$btn.ForeColor = [System.Drawing.Color]::White
-  if (`$H -gt 0) { `$btn.Height = `$H } else { `$btn.Height = `$barHeight - 12 }
-  if (`$W -gt 0) { `$btn.Width = `$W; `$btn.AutoSize = `$false } else { `$btn.AutoSize = `$true }
-  `$btn.Padding = New-Object System.Windows.Forms.Padding(14, 0, 14, 0)
-  `$btn.Margin = New-Object System.Windows.Forms.Padding(2, 0, 2, 0)
-  `$btn.Cursor = [System.Windows.Forms.Cursors]::Hand
-  `$btn.Add_MouseEnter({ `$this.BackColor = $hoverColor })
-  `$btn.Add_MouseLeave({ `$this.BackColor = $BgColor })
-  return `$btn
+  $btn = New-Object System.Windows.Forms.Button
+  $btn.Text = $Text
+  $btn.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+  $btn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+  $btn.FlatAppearance.BorderSize = 0
+  $btn.BackColor = $BgColor
+  $btn.ForeColor = [System.Drawing.Color]::White
+  if ($H -gt 0) { $btn.Height = $H } else { $btn.Height = $barHeight - 12 }
+  if ($W -gt 0) { $btn.Width = $W; $btn.AutoSize = $false } else { $btn.AutoSize = $true }
+  $btn.Padding = New-Object System.Windows.Forms.Padding(14, 0, 14, 0)
+  $btn.Margin = New-Object System.Windows.Forms.Padding(2, 0, 2, 0)
+  $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
+  $btn.Add_MouseEnter({ $this.BackColor = $hoverColor })
+  $btn.Add_MouseLeave({ $this.BackColor = $BgColor })
+  return $btn
 }
 
 function New-IconAppButton {
   param([string]$ToolTip, [string]$ExePath, [string]$Label)
-  `$btn = New-Object System.Windows.Forms.Button
-  `$btn.Text = $Label
-  `$btn.Font = New-Object System.Drawing.Font('Segoe UI', 9)
-  `$btn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-  `$btn.FlatAppearance.BorderSize = 0
-  `$btn.BackColor = [System.Drawing.Color]::Transparent
-  `$btn.ForeColor = `$textColor
-  `$btn.Height = `$barHeight - 8
-  `$btn.AutoSize = `$true
-  `$btn.Padding = New-Object System.Windows.Forms.Padding(10, 0, 10, 0)
-  `$btn.Margin = New-Object System.Windows.Forms.Padding(1, 0, 1, 0)
-  `$btn.Cursor = [System.Windows.Forms.Cursors]::Hand
-  `$btn.Add_Click({ Start-Process -FilePath $ExePath -ErrorAction SilentlyContinue })
-  `$btn.Add_MouseEnter({ `$this.BackColor = `$hoverColor })
-  `$btn.Add_MouseLeave({ `$this.BackColor = [System.Drawing.Color]::Transparent })
-  return `$btn
+  $btn = New-Object System.Windows.Forms.Button
+  $btn.Text = $Label
+  $btn.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+  $btn.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+  $btn.FlatAppearance.BorderSize = 0
+  $btn.BackColor = [System.Drawing.Color]::Transparent
+  $btn.ForeColor = $textColor
+  $btn.Height = $barHeight - 8
+  $btn.AutoSize = $true
+  $btn.Padding = New-Object System.Windows.Forms.Padding(10, 0, 10, 0)
+  $btn.Margin = New-Object System.Windows.Forms.Padding(1, 0, 1, 0)
+  $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
+  $btn.Add_Click({ Start-Process -FilePath $ExePath -ErrorAction SilentlyContinue })
+  $btn.Add_MouseEnter({ $this.BackColor = $hoverColor })
+  $btn.Add_MouseLeave({ $this.BackColor = [System.Drawing.Color]::Transparent })
+  return $btn
 }
 
-`$leftPanel = New-Object System.Windows.Forms.FlowLayoutPanel
-`$leftPanel.Dock = [System.Windows.Forms.DockStyle]::Left
-`$leftPanel.AutoSize = `$true
-`$leftPanel.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
-`$leftPanel.WrapContents = `$false
-`$leftPanel.BackColor = [System.Drawing.Color]::Transparent
-`$leftPanel.Padding = New-Object System.Windows.Forms.Padding(4, 0, 0, 0)
-`$leftPanel.Height = `$barHeight
+$leftPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+$leftPanel.Dock = [System.Windows.Forms.DockStyle]::Left
+$leftPanel.AutoSize = $true
+$leftPanel.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
+$leftPanel.WrapContents = $false
+$leftPanel.BackColor = [System.Drawing.Color]::Transparent
+$leftPanel.Padding = New-Object System.Windows.Forms.Padding(4, 0, 0, 0)
+$leftPanel.Height = $barHeight
 
 # --- Start button ---
-`$btnStart = New-Object System.Windows.Forms.Button
-`$btnStart.Text = [char]0x25CF + ' Start'
-`$btnStart.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
-`$btnStart.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-`$btnStart.FlatAppearance.BorderSize = 0
-`$btnStart.BackColor = `$accentColor
-`$btnStart.ForeColor = [System.Drawing.Color]::White
-`$btnStart.Height = `$barHeight - 12
-`$btnStart.AutoSize = `$true
-`$btnStart.Padding = New-Object System.Windows.Forms.Padding(12, 0, 12, 0)
-`$btnStart.Margin = New-Object System.Windows.Forms.Padding(4, 0, 8, 0)
-`$btnStart.Cursor = [System.Windows.Forms.Cursors]::Hand
+$btnStart = New-Object System.Windows.Forms.Button
+$btnStart.Text = [char]0x25CF + ' Start'
+$btnStart.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+$btnStart.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
+$btnStart.FlatAppearance.BorderSize = 0
+$btnStart.BackColor = $accentColor
+$btnStart.ForeColor = [System.Drawing.Color]::White
+$btnStart.Height = $barHeight - 12
+$btnStart.AutoSize = $true
+$btnStart.Padding = New-Object System.Windows.Forms.Padding(12, 0, 12, 0)
+$btnStart.Margin = New-Object System.Windows.Forms.Padding(4, 0, 8, 0)
+$btnStart.Cursor = [System.Windows.Forms.Cursors]::Hand
 
 # --- Start menu (popup) ---
-`$startMenu = New-Object System.Windows.Forms.ContextMenuStrip
-`$startMenu.BackColor = [System.Drawing.Color]::FromArgb(32, 32, 38)
-`$startMenu.ForeColor = `$textColor
-`$startMenu.Font = New-Object System.Drawing.Font('Segoe UI', 11)
-`$startMenu.Renderer = New-Object System.Windows.Forms.ToolStripProfessionalRenderer
-`$startMenu.ShowImageMargin = `$false
+$startMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$startMenu.BackColor = [System.Drawing.Color]::FromArgb(32, 32, 38)
+$startMenu.ForeColor = $textColor
+$startMenu.Font = New-Object System.Drawing.Font('Segoe UI', 11)
+$startMenu.Renderer = New-Object System.Windows.Forms.ToolStripProfessionalRenderer
+$startMenu.ShowImageMargin = $false
 
-`$apps = @(
+$apps = @(
   @{ Label = 'File Explorer'; Exe = 'explorer.exe' },
   @{ Label = 'Microsoft Edge'; Exe = 'msedge.exe' },
   @{ Label = 'Notepad'; Exe = 'notepad.exe' },
@@ -1260,132 +1260,133 @@ function New-IconAppButton {
   @{ Label = 'Command Prompt'; Exe = 'cmd.exe' },
   @{ Label = 'Settings'; Exe = 'ms-settings:' }
 )
-foreach (`$app in `$apps) {
-  `$item = `$startMenu.Items.Add(`$app.Label)
-  `$item.Tag = `$app.Exe
-  `$item.ForeColor = `$textColor
-  `$item.BackColor = [System.Drawing.Color]::FromArgb(32, 32, 38)
-  `$item.Font = New-Object System.Drawing.Font('Segoe UI', 11)
-  `$item.Add_Click({
-    param(`$s, `$e)
-    `$exe = `$s.Tag
-    Start-Process -FilePath `$exe -ErrorAction SilentlyContinue
+foreach ($app in $apps) {
+  $item = $startMenu.Items.Add($app.Label)
+  $item.Tag = $app.Exe
+  $item.ForeColor = $textColor
+  $item.BackColor = [System.Drawing.Color]::FromArgb(32, 32, 38)
+  $item.Font = New-Object System.Drawing.Font('Segoe UI', 11)
+  $item.Add_Click({
+    param($s, $e)
+    $exe = $s.Tag
+    Start-Process -FilePath $exe -ErrorAction SilentlyContinue
   })
 }
-`$startMenu.Items.Add('-')
-`$shutdownItem = `$startMenu.Items.Add('Shut Down')
-`$shutdownItem.ForeColor = [System.Drawing.Color]::FromArgb(255, 80, 80)
-`$shutdownItem.Font = New-Object System.Drawing.Font('Segoe UI', 11)
-`$shutdownItem.Add_Click({ try { & shutdown.exe /s /t 0 /f } catch {} })
+$startMenu.Items.Add('-')
+$shutdownItem = $startMenu.Items.Add('Shut Down')
+$shutdownItem.ForeColor = [System.Drawing.Color]::FromArgb(255, 80, 80)
+$shutdownItem.Font = New-Object System.Drawing.Font('Segoe UI', 11)
+$shutdownItem.Add_Click({ try { & shutdown.exe /s /t 0 /f } catch {} })
 
-`$btnStart.Add_Click({
-  `$point = `$btnStart.PointToScreen(New-Object System.Drawing.Point(0, `$btnStart.Height))
-  `$startMenu.Show(`$point)
+$btnStart.Add_Click({
+  $pt = New-Object System.Drawing.Point(0, $btnStart.Height)
+  $point = $btnStart.PointToScreen($pt)
+  $startMenu.Show($point)
 })
-`$leftPanel.Controls.Add(`$btnStart)
+$leftPanel.Controls.Add($btnStart)
 
 # --- Pinned apps ---
-`$pinned = @(
+$pinned = @(
   @{ Label = 'Explorer'; Exe = 'explorer.exe' },
   @{ Label = 'Edge'; Exe = 'msedge.exe' },
   @{ Label = 'Notepad'; Exe = 'notepad.exe' },
   @{ Label = 'Terminal'; Exe = 'wt.exe' }
 )
-foreach (`$app in `$pinned) {
-  `$btn = New-IconAppButton -ToolTip `$app.Label -ExePath `$app.Exe -Label `$app.Label
-  `$leftPanel.Controls.Add(`$btn)
+foreach ($app in $pinned) {
+  $btn = New-IconAppButton -ToolTip $app.Label -ExePath $app.Exe -Label $app.Label
+  $leftPanel.Controls.Add($btn)
 }
 
 # --- Separator ---
-`$sep = New-Object System.Windows.Forms.Label
-`$sep.Text = '|'
-`$sep.ForeColor = `$dimTextColor
-`$sep.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-`$sep.AutoSize = `$true
-`$sep.Margin = New-Object System.Windows.Forms.Padding(8, 0, 8, 0)
-`$sep.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-`$leftPanel.Controls.Add(`$sep)
+$sep = New-Object System.Windows.Forms.Label
+$sep.Text = '|'
+$sep.ForeColor = $dimTextColor
+$sep.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+$sep.AutoSize = $true
+$sep.Margin = New-Object System.Windows.Forms.Padding(8, 0, 8, 0)
+$sep.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$leftPanel.Controls.Add($sep)
 
 # --- Open windows list label ---
-`$lblWindows = New-Object System.Windows.Forms.Label
-`$lblWindows.Text = ''
-`$lblWindows.ForeColor = `$dimTextColor
-`$lblWindows.Font = New-Object System.Drawing.Font('Segoe UI', 9)
-`$lblWindows.AutoSize = `$true
-`$lblWindows.Margin = New-Object System.Windows.Forms.Padding(4, 0, 0, 0)
-`$lblWindows.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-`$leftPanel.Controls.Add(`$lblWindows)
+$lblWindows = New-Object System.Windows.Forms.Label
+$lblWindows.Text = ''
+$lblWindows.ForeColor = $dimTextColor
+$lblWindows.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+$lblWindows.AutoSize = $true
+$lblWindows.Margin = New-Object System.Windows.Forms.Padding(4, 0, 0, 0)
+$lblWindows.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$leftPanel.Controls.Add($lblWindows)
 
 # --- Right panel (controls + clock) ---
-`$rightPanel = New-Object System.Windows.Forms.FlowLayoutPanel
-`$rightPanel.Dock = [System.Windows.Forms.DockStyle]::Right
-`$rightPanel.AutoSize = `$true
-`$rightPanel.FlowDirection = [System.Windows.Forms.FlowDirection]::RightToLeft
-`$rightPanel.WrapContents = `$false
-`$rightPanel.BackColor = [System.Drawing.Color]::Transparent
-`$rightPanel.Padding = New-Object System.Windows.Forms.Padding(0, 0, 6, 0)
-`$rightPanel.Height = `$barHeight
-`$rightPanel.Width = 500
+$rightPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+$rightPanel.Dock = [System.Windows.Forms.DockStyle]::Right
+$rightPanel.AutoSize = $true
+$rightPanel.FlowDirection = [System.Windows.Forms.FlowDirection]::RightToLeft
+$rightPanel.WrapContents = $false
+$rightPanel.BackColor = [System.Drawing.Color]::Transparent
+$rightPanel.Padding = New-Object System.Windows.Forms.Padding(0, 0, 6, 0)
+$rightPanel.Height = $barHeight
+$rightPanel.Width = 500
 
 # --- Clock ---
-`$lblClock = New-Object System.Windows.Forms.Label
-`$lblClock.Text = Get-Date -Format 'HH:mm'
-`$lblClock.Font = New-Object System.Drawing.Font('Segoe UI', 10)
-`$lblClock.ForeColor = `$textColor
-`$lblClock.AutoSize = `$true
-`$lblClock.Margin = New-Object System.Windows.Forms.Padding(12, 0, 8, 0)
-`$lblClock.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-`$rightPanel.Controls.Add(`$lblClock)
+$lblClock = New-Object System.Windows.Forms.Label
+$lblClock.Text = Get-Date -Format 'HH:mm'
+$lblClock.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+$lblClock.ForeColor = $textColor
+$lblClock.AutoSize = $true
+$lblClock.Margin = New-Object System.Windows.Forms.Padding(12, 0, 8, 0)
+$lblClock.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
+$rightPanel.Controls.Add($lblClock)
 
 # --- Control buttons ---
-`$btnSleep = New-TaskbarButton -Text 'Sleep' -BgColor ([System.Drawing.Color]::FromArgb(44, 44, 50))
-`$btnSleep.Add_Click({ try { & rundll32.exe powrprof.dll,SetSuspendState 0,1,0 } catch {} })
-`$rightPanel.Controls.Add(`$btnSleep)
+$btnSleep = New-TaskbarButton -Text 'Sleep' -BgColor ([System.Drawing.Color]::FromArgb(44, 44, 50))
+$btnSleep.Add_Click({ try { & rundll32.exe powrprof.dll,SetSuspendState 0,1,0 } catch {} })
+$rightPanel.Controls.Add($btnSleep)
 
-`$btnSwitch = New-TaskbarButton -Text 'Switch User' -BgColor ([System.Drawing.Color]::FromArgb(44, 44, 50))
-`$btnSwitch.Add_Click({ try { & rundll32.exe user32.dll,LockWorkStation } catch {} })
-`$rightPanel.Controls.Add(`$btnSwitch)
+$btnSwitch = New-TaskbarButton -Text 'Switch User' -BgColor ([System.Drawing.Color]::FromArgb(44, 44, 50))
+$btnSwitch.Add_Click({ try { & rundll32.exe user32.dll,LockWorkStation } catch {} })
+$rightPanel.Controls.Add($btnSwitch)
 
-`$btnLogout = New-TaskbarButton -Text 'Logout' -BgColor ([System.Drawing.Color]::FromArgb(160, 35, 35))
-`$btnLogout.Add_Click({ try { & logoff.exe } catch {} })
-`$rightPanel.Controls.Add(`$btnLogout)
+$btnLogout = New-TaskbarButton -Text 'Logout' -BgColor ([System.Drawing.Color]::FromArgb(160, 35, 35))
+$btnLogout.Add_Click({ try { & logoff.exe } catch {} })
+$rightPanel.Controls.Add($btnLogout)
 
-`$form.Controls.Add(`$leftPanel)
-`$form.Controls.Add(`$rightPanel)
+$form.Controls.Add($leftPanel)
+$form.Controls.Add($rightPanel)
 
 # --- Clock timer ---
-`$clockTimer = New-Object System.Windows.Forms.Timer
-`$clockTimer.Interval = 30000
-`$clockTimer.Add_Tick({ `$lblClock.Text = Get-Date -Format 'HH:mm' })
-`$clockTimer.Start()
+$clockTimer = New-Object System.Windows.Forms.Timer
+$clockTimer.Interval = 30000
+$clockTimer.Add_Tick({ $lblClock.Text = Get-Date -Format 'HH:mm' })
+$clockTimer.Start()
 
 # --- Open windows counter ---
-`$winTimer = New-Object System.Windows.Forms.Timer
-`$winTimer.Interval = 5000
-`$winTimer.Add_Tick({
+$winTimer = New-Object System.Windows.Forms.Timer
+$winTimer.Interval = 5000
+$winTimer.Add_Tick({
   try {
-    `$procs = @(Get-Process | Where-Object { `$_.MainWindowTitle -ne '' -and `$_.ProcessName -notin @('explorer','SearchHost','ShellExperienceHost','ApplicationFrameHost','Microsoft.Photos','Settings','lockapp') })
-    `$count = `$procs.Count
-    if (`$count -gt 0) { `$lblWindows.Text = ('{0} app(s) open' -f `$count) } else { `$lblWindows.Text = '' }
-  } catch { `$lblWindows.Text = '' }
+    $procs = @(Get-Process | Where-Object { $_.MainWindowTitle -ne '' -and $_.ProcessName -notin @('explorer','SearchHost','ShellExperienceHost','ApplicationFrameHost','Microsoft.Photos','Settings','lockapp') })
+    $count = $procs.Count
+    if ($count -gt 0) { $lblWindows.Text = ('{0} app(s) open' -f $count) } else { $lblWindows.Text = '' }
+  } catch { $lblWindows.Text = '' }
 })
-`$winTimer.Start()
+$winTimer.Start()
 
 # --- Idle timeout ---
-`$idleTimer = New-Object System.Windows.Forms.Timer
-`$idleTimer.Interval = 30000
-`$idleTimer.Add_Tick({
-  if (`$IdleTimeoutMinutes -le 0) { return }
-  `$idle = Get-IdleSeconds
-  if (`$idle -ge `$IdleTimeoutMinutes * 60) {
-    `$idleTimer.Stop()
+$idleTimer = New-Object System.Windows.Forms.Timer
+$idleTimer.Interval = 30000
+$idleTimer.Add_Tick({
+  if ($IdleTimeoutMinutes -le 0) { return }
+  $idle = Get-IdleSeconds
+  if ($idle -ge $IdleTimeoutMinutes * 60) {
+    $idleTimer.Stop()
     try { & rundll32.exe powrprof.dll,SetSuspendState 0,1,0 } catch {}
   }
 })
-`$idleTimer.Start()
+$idleTimer.Start()
 
-try { [System.Windows.Forms.Application]::Run(`$form) } catch { exit 1 }
-"@
+try { [System.Windows.Forms.Application]::Run($form) } catch { exit 1 }
+'@
   Set-Content -LiteralPath $script:TaskbarScriptPath -Value $content -Encoding UTF8
 }
 
