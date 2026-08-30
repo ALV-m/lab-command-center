@@ -48,6 +48,7 @@ export interface TenantListItem {
   createdAt: string;
   computers: number;
   admins: number;
+  superAdminUsername: string | null;
 }
 
 export interface TenantsListResult {

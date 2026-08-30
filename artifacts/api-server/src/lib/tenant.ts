@@ -188,4 +188,17 @@ export async function countTenantAdmins(tenantId: number): Promise<number> {
   }
 }
 
+// Returns the tenant's super admin login username (the account their admins
+// use to sign in to the lab), or null if none exists yet.
+export async function getTenantSuperAdminUsername(tenantId: number): Promise<string | null> {
+  try {
+    const result = await pool.query(
+      `SELECT username FROM "${schemaNameFor(tenantId)}"."app_users" WHERE role = 'super_admin' LIMIT 1`,
+    );
+    return result.rows[0]?.username ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export { SLUG_RE, uniqueSlug };

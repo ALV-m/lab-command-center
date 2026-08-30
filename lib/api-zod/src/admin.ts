@@ -28,6 +28,7 @@ export const AdminLogoutResponse = zod.object({
 export const TenantListItem = TenantAccount.extend({
   computers: zod.number(),
   admins: zod.number(),
+  superAdminUsername: zod.string().nullable(),
 });
 export type TenantListItem = zod.infer<typeof TenantListItem>;
 

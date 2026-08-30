@@ -342,7 +342,7 @@ function AdminDashboard() {
                 <TableRow>
                   <TableHead>Lab</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Contact</TableHead>
+                  <TableHead>Super admin login</TableHead>
                   <TableHead className="text-right">Computers</TableHead>
                   <TableHead className="text-right">Admins</TableHead>
                   <TableHead>Created</TableHead>
@@ -377,6 +377,13 @@ function AdminDashboard() {
                               t/{tenant.slug}/login
                             </Link>
                           </span>
+                          {(tenant.contactName || tenant.contactEmail) && (
+                            <span className="text-xs text-muted-foreground">
+                              {[tenant.contactName, tenant.contactEmail]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -388,12 +395,14 @@ function AdminDashboard() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-col text-sm">
-                          <span>{tenant.contactName ?? "—"}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {tenant.contactEmail ?? "—"}
-                          </span>
-                        </div>
+                        {tenant.superAdminUsername ? (
+                          <div className="flex flex-col text-sm">
+                            <span className="font-medium">{tenant.superAdminUsername}</span>
+                            <span className="text-xs text-muted-foreground">Password can be reset below</span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{tenant.computers}</TableCell>
                       <TableCell className="text-right tabular-nums">{tenant.admins}</TableCell>

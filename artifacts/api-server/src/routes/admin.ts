@@ -31,6 +31,7 @@ import {
   countTenantAdmins,
   countTenantComputers,
   deleteTenant,
+  getTenantSuperAdminUsername,
   resetTenantSuperAdmin,
 } from "../lib/tenant";
 import { logger } from "../lib/logger";
@@ -117,6 +118,7 @@ router.get("/admin/tenants", async (_req, res): Promise<void> => {
         : String(row.createdAt),
       computers: await countTenantComputers(row.id),
       admins: await countTenantAdmins(row.id),
+      superAdminUsername: await getTenantSuperAdminUsername(row.id),
     })),
   );
 
