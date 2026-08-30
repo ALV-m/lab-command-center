@@ -2889,7 +2889,7 @@ function Start-WsListener {
         $ws.ConnectAsync($uri, $cts.Token).GetAwaiter().GetResult()
 
         $hello = [System.Text.Encoding]::UTF8.GetBytes('{"type":"hello","computerId":' + $compId + '}')
-        $ws.SendAsync([System.ArraySegment[byte]]::new($hello), [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).GetAwaiter().GetResult() | Out-Null
+        $null = $ws.SendAsync([System.ArraySegment[byte]]::new($hello), [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $cts.Token).GetAwaiter().GetResult()
 
         $script:WsConnected = $true
         $reconnectDelay = 2
@@ -2919,8 +2919,8 @@ function Start-WsListener {
       Start-Sleep -Seconds $reconnectDelay
       if ($reconnectDelay -lt 30) { $reconnectDelay = [Math]::Min($reconnectDelay * 2, 30) }
     }
-  }) | Out-Null
-  $ps.BeginInvoke() | Out-Null
+  })
+  $ps.BeginInvoke()
 }
 
 Start-WsListener
