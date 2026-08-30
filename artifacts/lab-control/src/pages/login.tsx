@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Redirect } from "wouter";
-import { useLogin } from "@workspace/api-client-react";
+import { Redirect, useLocation } from "wouter";
+import { useLogin, useLoginWithLink } from "@workspace/api-client-react";
 import { Lock, Server } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,9 +31,29 @@ function LoginPage({ slug }: { slug?: string }) {
       onError: (error) => toast.error(error.message),
     },
   });
+  const loginLinkMutation = useLoginWithLink({
+    slug,
+    mutation: {
+      onSuccess: () => {
+        void refresh();
+        toast.success("Signed in");
+      },
+      onError: (error) => toast.error(error.message),
+    },
+  });
 
+  const [, navigate] = useLocation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const link = params.get("link");
+    if (!link) return;
+    loginLinkMutation.mutate({ data: { link } });
+    const clean = window.location.pathname;
+    window.history.replaceState({}, "", clean);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (status === "authenticated" && user) {
     return (
@@ -49,6 +69,17 @@ function LoginPage({ slug }: { slug?: string }) {
     }
     loginMutation.mutate({ data: { username: username.trim(), password } });
   };
+
+  if (loginLinkMutation.isPending) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Spinner className="size-6" />
+          <p className="text-sm">Signing you in…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">

@@ -208,6 +208,80 @@ export const useLogin = <TError = ErrorType<unknown>, TContext = unknown>(
   TContext
 > => useMutation(getLoginMutationOptions(options));
 
+export interface LoginLinkInput {
+  link: string;
+}
+
+export const loginLinkUrl = (slug?: string): string => `${apiBase(slug)}/auth/login-link`;
+
+export const loginWithLink = async (
+  data: BodyType<LoginLinkInput>,
+  slug?: string,
+  options?: Parameters<typeof customFetch>[1],
+): Promise<LoginResult> => {
+  return customFetch<LoginResult>(loginLinkUrl(slug), {
+    ...options,
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(data),
+  });
+};
+
+export const getLoginLinkMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    slug?: string;
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof loginWithLink>>,
+      TError,
+      { data: BodyType<LoginLinkInput> },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseMutationOptions<
+  Awaited<ReturnType<typeof loginWithLink>>,
+  TError,
+  { data: BodyType<LoginLinkInput> },
+  TContext
+> => {
+  const mutationKey = ["loginWithLink"];
+  const { slug, mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof loginWithLink>>,
+    { data: BodyType<LoginLinkInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+    return loginWithLink(data, slug, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export const useLoginWithLink = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    slug?: string;
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof loginWithLink>>,
+      TError,
+      { data: BodyType<LoginLinkInput> },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseMutationResult<
+  Awaited<ReturnType<typeof loginWithLink>>,
+  TError,
+  { data: BodyType<LoginLinkInput> },
+  TContext
+> => useMutation(getLoginLinkMutationOptions(options));
+
+
 export const getLogoutMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {
     slug?: string;

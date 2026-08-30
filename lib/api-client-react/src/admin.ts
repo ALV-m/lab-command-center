@@ -416,6 +416,78 @@ export const useResetTenantAdminPassword = <TError = ErrorType<unknown>, TContex
   TContext
 > => useMutation(getResetTenantAdminPasswordMutationOptions(options));
 
+export interface CreateTenantLoginLinkResult {
+  url: string;
+}
+
+export const createTenantLoginLink = async (
+  tenantId: number,
+  options?: Parameters<typeof customFetch>[1],
+): Promise<CreateTenantLoginLinkResult> => {
+  return customFetch<CreateTenantLoginLinkResult>(
+    `${adminTenantsUrl()}/${tenantId}/login-link`,
+    {
+      ...options,
+      method: "POST",
+    },
+  );
+};
+
+export const getCreateTenantLoginLinkMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof createTenantLoginLink>>,
+      TError,
+      { tenantId: number },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseMutationOptions<
+  Awaited<ReturnType<typeof createTenantLoginLink>>,
+  TError,
+  { tenantId: number },
+  TContext
+> => {
+  const mutationKey = ["createTenantLoginLink"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createTenantLoginLink>>,
+    { tenantId: number }
+  > = (props) => {
+    const { tenantId } = props ?? {};
+    return createTenantLoginLink(tenantId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export const useCreateTenantLoginLink = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof createTenantLoginLink>>,
+      TError,
+      { tenantId: number },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseMutationResult<
+  Awaited<ReturnType<typeof createTenantLoginLink>>,
+  TError,
+  { tenantId: number },
+  TContext
+> => useMutation(getCreateTenantLoginLinkMutationOptions(options));
+
+
 export const deleteTenant = async (
   tenantId: number,
   options?: Parameters<typeof customFetch>[1],

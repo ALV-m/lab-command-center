@@ -38,6 +38,14 @@ export const LoginBody = zod.object({
   password: zod.string().min(1).max(200),
 });
 
+export const LoginLinkBody = zod.object({
+  link: zod.string().trim().min(1).max(256),
+});
+
+export const CreateLoginLinkResponse = zod.object({
+  url: zod.string(),
+});
+
 export const LoginResponse = zod.object({
   token: zod.string(),
   user: UserAccount,

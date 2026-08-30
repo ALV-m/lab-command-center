@@ -102,6 +102,10 @@ const PUBLIC_DDL_STATEMENTS = [
   CREATE INDEX IF NOT EXISTS auth_sessions_platform_user_idx
     ON auth_sessions_platform (user_id);
   `,
+  `
+  ALTER TABLE tenants ADD COLUMN IF NOT EXISTS login_token text;
+  ALTER TABLE tenants ADD COLUMN IF NOT EXISTS login_token_expires_at timestamptz;
+  `,
 ];
 
 export function schemaNameFor(tenantId: number): string {

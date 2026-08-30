@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  useCreateTenantLoginLink,
   useDeleteTenant,
   useGetAdminStats,
   useListAdminTenants,
@@ -12,6 +13,8 @@ import type { TenantListItem } from "@workspace/api-client-react";
 import {
   Boxes,
   CheckCircle2,
+  Copy,
+  ExternalLink,
   KeyRound,
   Link as LinkIcon,
   LogOut,
@@ -89,10 +92,12 @@ function StatCard({
 function TenantActions({
   tenant,
   onReset,
+  onLogin,
   onDelete,
 }: {
   tenant: TenantListItem;
   onReset: (tenant: TenantListItem) => void;
+  onLogin: (tenant: TenantListItem) => void;
   onDelete: (tenant: TenantListItem) => void;
 }) {
   const queryClient = useQueryClient();
@@ -137,6 +142,10 @@ function TenantActions({
       <Button variant="outline" size="sm" onClick={() => onReset(tenant)}>
         <KeyRound className="size-4" />
         Reset password
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => onLogin(tenant)}>
+        <LinkIcon className="size-4" />
+        Login link
       </Button>
       <Button
         variant="outline"
@@ -223,6 +232,79 @@ function ResetPasswordDialog({
   );
 }
 
+function LoginLinkDialog({
+  tenant,
+  onOpenChange,
+}: {
+  tenant: TenantListItem | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const createLink = useCreateTenantLoginLink({
+    mutation: {
+      onSuccess: (data) => setUrl(data.url),
+      onError: (error) => toast.error(error.message),
+    },
+  });
+
+  if (!tenant) return null;
+
+  const fullUrl = url ? `${window.location.origin}${url}` : null;
+
+  const copy = async () => {
+    if (!fullUrl) return;
+    try {
+      await navigator.clipboard.writeText(fullUrl);
+      toast.success("Login link copied.");
+    } catch {
+      toast.error("Could not copy the link.");
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Password-less login link</DialogTitle>
+          <DialogDescription>
+            Generates a one-time link that signs the super admin of{" "}
+            {tenant.name} ({tenant.slug}) straight in — no password needed. The
+            link expires after 15 minutes.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          {createLink.isPending || !fullUrl ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Spinner className="size-4" />
+              Generating link…
+            </div>
+          ) : (
+            <Input readOnly value={fullUrl} className="text-xs" />
+          )}
+        </div>
+        <DialogFooter>
+          {fullUrl ? (
+            <>
+              <Button variant="outline" onClick={() => void copy()}>
+                <Copy className="size-4" />
+                Copy link
+              </Button>
+              <Button onClick={() => window.open(fullUrl, "_blank", "noopener,noreferrer")}>
+                <ExternalLink className="size-4" />
+                Open login
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function DeleteTenantDialog({
   tenant,
   onOpenChange,
@@ -280,6 +362,7 @@ function AdminDashboard() {
   const statsQuery = useGetAdminStats();
   const [resetTarget, setResetTarget] = useState<TenantListItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TenantListItem | null>(null);
+  const [loginTarget, setLoginTarget] = useState<TenantListItem | null>(null);
 
   const tenants = useMemo(() => tenantsQuery.data?.tenants ?? [], [tenantsQuery.data]);
 
@@ -413,6 +496,7 @@ function AdminDashboard() {
                         <TenantActions
                           tenant={tenant}
                           onReset={setResetTarget}
+                          onLogin={setLoginTarget}
                           onDelete={setDeleteTarget}
                         />
                       </TableCell>
@@ -426,6 +510,7 @@ function AdminDashboard() {
       </main>
 
       <ResetPasswordDialog tenant={resetTarget} onOpenChange={(open) => { if (!open) setResetTarget(null); }} />
+      <LoginLinkDialog tenant={loginTarget} onOpenChange={(open) => { if (!open) setLoginTarget(null); }} />
       <DeleteTenantDialog tenant={deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }} />
     </div>
   );

@@ -212,6 +212,8 @@ export const tenantsTable = pgTable("tenants", {
   contactName: text("contact_name").notNull(),
   contactEmail: text("contact_email"),
   status: text("status").notNull().default("active"),
+  loginToken: text("login_token"),
+  loginTokenExpiresAt: timestamp("login_token_expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -4,6 +4,7 @@ import { db, appUsersTable } from "@workspace/db";
 import {
   AuthMeResponse,
   LoginBody,
+  LoginLinkBody,
   LoginResponse,
   LogoutResponse,
   UserAccount,
@@ -22,6 +23,12 @@ import {
   sessionCookieOptions,
 } from "../lib/auth";
 import { hashPassword, verifyPassword } from "../lib/passwords";
+import {
+  consumeTenantLoginLink,
+  createTenantSuperAdminSession,
+  getTenantBySlugPublic,
+  tenantSlugFromRequest,
+} from "../lib/tenant";
 
 const router: IRouter = Router();
 
@@ -64,6 +71,51 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   res.json(
     LoginResponse.parse({
       token,
+      user: mapUser(user),
+    }),
+  );
+});
+
+// Password-less login link minted by the platform owner. Consumes the one-time
+// token and signs the tenant's super admin straight in.
+router.post("/auth/login-link", async (req, res): Promise<void> => {
+  const body = LoginLinkBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: "Invalid login link" });
+    return;
+  }
+  const tenant = await getTenantBySlugPublic(tenantSlugFromRequest(req));
+  if (!tenant) {
+    res.status(404).json({ error: "Lab not found" });
+    return;
+  }
+
+  const ok = await consumeTenantLoginLink(tenant.id, body.data.link);
+  if (!ok) {
+    res.status(401).json({ error: "This login link is invalid or has expired" });
+    return;
+  }
+
+  const session = await createTenantSuperAdminSession(tenant.id);
+  if (!session) {
+    res.status(500).json({ error: "No super admin account exists for this lab" });
+    return;
+  }
+
+  res.cookie(SESSION_COOKIE, session.sessionToken, sessionCookieOptions);
+  const [user] = await db
+    .select()
+    .from(appUsersTable)
+    .where(eq(appUsersTable.id, session.userId))
+    .limit(1);
+  if (!user) {
+    res.status(500).json({ error: "Session could not be established" });
+    return;
+  }
+
+  res.json(
+    LoginResponse.parse({
+      token: session.sessionToken,
       user: mapUser(user),
     }),
   );
