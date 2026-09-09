@@ -9,12 +9,14 @@ import {
   FolderUp,
   LayoutDashboard,
   LogOut,
+  Menu,
   Monitor,
   Server,
   ShieldAlert,
   ShieldCheck,
   UserCheck,
   Users,
+  X,
 } from "lucide-react";
 import { Route, Router as WouterRouter, Switch, Link, useLocation, useParams } from "wouter";
 import { Toaster } from "sonner";
@@ -213,37 +215,87 @@ function Sidebar() {
 function MobileNav() {
   const [location] = useLocation();
   const { user } = useAuth();
-  const items = NAV_SECTIONS.flatMap((section) => section.items).filter((item) =>
-    canSeeItem(item, user?.role ?? null, user?.submenuAccess ?? []),
-  );
+  const [open, setOpen] = useState(false);
+
+  const sections = NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) =>
+      canSeeItem(item, user?.role ?? null, user?.submenuAccess ?? []),
+    ),
+  })).filter((section) => section.items.length > 0);
 
   return (
-    <div className="no-print sticky top-0 z-10 flex items-center justify-between gap-2 border-b bg-background px-4 py-3 md:hidden">
-      <Brand />
-      <div className="flex items-center gap-1">
-        <nav className="flex gap-1">
-          {items.map((item) => {
-            const active = location === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-label={item.label}
-                className={cn(
-                  "flex size-9 items-center justify-center rounded-md transition-colors",
-                  active
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                )}
-              >
-                <item.icon className="size-4" />
-              </Link>
-            );
-          })}
-        </nav>
-        <SignOutButton className="px-2" />
+    <>
+      <div className="no-print sticky top-0 z-40 flex items-center justify-between gap-2 border-b bg-background px-4 py-3 md:hidden">
+        <Brand />
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-9"
+          aria-label="Open navigation menu"
+          onClick={() => setOpen(true)}
+        >
+          <Menu className="size-5" />
+        </Button>
       </div>
-    </div>
+      {open ? (
+        <div className="no-print fixed inset-0 z-50 flex flex-col bg-background md:hidden">
+          <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+            <Brand />
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-9"
+              aria-label="Close navigation menu"
+              onClick={() => setOpen(false)}
+            >
+              <X className="size-5" />
+            </Button>
+          </div>
+          {user ? (
+            <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{user.username}</p>
+                <p className="text-xs text-muted-foreground">
+                  {user.role === "super_admin" ? "Super Admin" : "Admin"}
+                </p>
+              </div>
+              <SignOutButton className="px-2" />
+            </div>
+          ) : null}
+          <nav className="flex-1 overflow-y-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {sections.map((section, index) => (
+              <div key={index} className="space-y-1">
+                {section.label ? (
+                  <p className="px-3 pt-3 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+                    {section.label}
+                  </p>
+                ) : null}
+                {section.items.map((item) => {
+                  const active = location === item.href;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setOpen(false)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-colors",
+                        active
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                      )}
+                    >
+                      <item.icon className="size-5" />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
+          </nav>
+        </div>
+      ) : null}
+    </>
   );
 }
 
