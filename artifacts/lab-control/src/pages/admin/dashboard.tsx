@@ -118,7 +118,7 @@ function TenantActions({
   });
 
   return (
-    <div className="flex items-center justify-end gap-1.5">
+    <div className="flex flex-wrap items-center justify-end gap-1.5">
       {tenant.status === "active" ? (
         <Button
           variant="outline"
