@@ -1801,6 +1801,23 @@ function Update-CheckinGate {
       if ($adminName -and $adminName -ieq $consoleName) { $adminSession = $true }
     }
 
+    # The custom taskbar is a student-only feature. A console session also
+    # counts as an admin session when the account is a member of the local
+    # Administrators group, even if no gate admin account is configured.
+    $taskbarUserIsAdmin = $adminSession
+    if (-not $taskbarUserIsAdmin -and $user) {
+      try {
+        $bareConsole = $user
+        if ($bareConsole -match '\\(?<name>[^\\]+)$') { $bareConsole = $Matches['name'] }
+        foreach ($m in @(Get-LocalGroupMember -Group 'Administrators' -ErrorAction SilentlyContinue)) {
+          if ($m.ObjectClass -ne 'User') { continue }
+          $mn = [string]$m.Name
+          if ($mn -match '\\(?<name>[^\\]+)$') { $mn = $Matches['name'] }
+          if ($mn -and $mn -ieq $bareConsole) { $taskbarUserIsAdmin = $true; break }
+        }
+      } catch {}
+    }
+
     if ($gateNeeded -and $adminSession) {
       try {
         $body = @{ token = $config.token; userName = $user; role = 'admin'; studentName = $user }
@@ -1846,8 +1863,11 @@ function Update-CheckinGate {
       }
     }
 
-    # Start taskbar after successful check-in (gate no longer needed).
-    if (-not $gateNeeded -and $user -and -not $isSystemUser) {
+    # Start taskbar after successful check-in (gate no longer needed). It is a
+    # student-only feature: never start (or keep) it for an admin session.
+    if ($taskbarUserIsAdmin) {
+      Stop-Taskbar
+    } elseif (-not $gateNeeded -and $user -and -not $isSystemUser) {
       if (-not (Get-TaskbarRunning)) {
         $idleMinutes = 15
         if ($Hb -and $null -ne $Hb.computer -and $Hb.computer.idleLogoutMinutes -and ([int]$Hb.computer.idleLogoutMinutes) -gt 0) {
