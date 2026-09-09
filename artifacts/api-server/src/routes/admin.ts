@@ -11,6 +11,7 @@ import {
   AdminLoginResponse,
   AdminMeResponse,
   AdminLogoutResponse,
+  AdminOpenLabResponse,
   PlatformStatsResponse,
   TenantAdminPasswordBody,
   TenantIdParams,
@@ -25,6 +26,8 @@ import {
   PLATFORM_COOKIE,
   platformSessionCookieOptions,
   requirePlatformAuth,
+  SESSION_COOKIE,
+  sessionCookieOptions,
 } from "../lib/auth";
 import { hashPassword, verifyPassword } from "../lib/passwords";
 import {
@@ -233,6 +236,37 @@ router.post("/admin/tenants/:tenantId/login-link", async (req, res): Promise<voi
 
   const { token } = await createTenantLoginLink(params.data.tenantId);
   res.json({ url: `/t/${tenant.slug}/login?link=${token}` });
+});
+
+router.post("/admin/tenants/:tenantId/open-lab", async (req, res): Promise<void> => {
+  const params = TenantIdParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Invalid tenant id" });
+    return;
+  }
+
+  const [tenant] = await db
+    .select()
+    .from(tenantsTable)
+    .where(eq(tenantsTable.id, params.data.tenantId))
+    .limit(1);
+  if (!tenant) {
+    res.status(404).json({ error: "Tenant not found" });
+    return;
+  }
+  if (tenant.status !== "active") {
+    res.status(403).json({ error: "This lab account is suspended" });
+    return;
+  }
+
+  const session = await createTenantSuperAdminSession(tenant.id);
+  if (!session) {
+    res.status(404).json({ error: "This lab has no super admin account" });
+    return;
+  }
+
+  res.cookie(SESSION_COOKIE, session.sessionToken, sessionCookieOptions);
+  res.json(AdminOpenLabResponse.parse({ path: `/t/${tenant.slug}` }));
 });
 
 router.delete("/admin/tenants/:tenantId", async (req, res): Promise<void> => {

@@ -487,6 +487,67 @@ export const useCreateTenantLoginLink = <TError = ErrorType<unknown>, TContext =
   TContext
 > => useMutation(getCreateTenantLoginLinkMutationOptions(options));
 
+export interface AdminOpenLabResult {
+  path: string;
+}
+
+export const openLab = async (
+  tenantId: number,
+  options?: Parameters<typeof customFetch>[1],
+): Promise<AdminOpenLabResult> => {
+  return customFetch<AdminOpenLabResult>(`${adminTenantsUrl()}/${tenantId}/open-lab`, {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getOpenLabMutationOptions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof openLab>>,
+      TError,
+      { tenantId: number },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseMutationOptions<
+  Awaited<ReturnType<typeof openLab>>,
+  TError,
+  { tenantId: number },
+  TContext
+> => {
+  const mutationKey = ["openLab"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof openLab>>,
+    { tenantId: number }
+  > = (props) => {
+    const { tenantId } = props ?? {};
+    return openLab(tenantId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export const useOpenLab = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof openLab>>,
+      TError,
+      { tenantId: number },
+      TContext
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseMutationResult<Awaited<ReturnType<typeof openLab>>, TError, { tenantId: number }, TContext> =>
+  useMutation(getOpenLabMutationOptions(options));
+
 
 export const deleteTenant = async (
   tenantId: number,

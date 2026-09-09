@@ -44,6 +44,10 @@ export const TenantAdminPasswordBody = zod.object({
   password: zod.string().min(6).max(200),
 });
 
+export const AdminOpenLabResponse = zod.object({
+  path: zod.string(),
+});
+
 export const PlatformStatsResponse = zod.object({
   totalTenants: zod.number(),
   activeTenants: zod.number(),
