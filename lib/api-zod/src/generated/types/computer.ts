@@ -49,6 +49,10 @@ export interface Computer {
   /** @nullable */
   cpuCores: number | null;
   /** @nullable */
+  diskTotal: number | null;
+  /** @nullable */
+  diskFree: number | null;
+  /** @nullable */
   ipAddress: string | null;
   /** @nullable */
   macAddress: string | null;

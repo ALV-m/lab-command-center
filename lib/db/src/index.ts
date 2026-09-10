@@ -129,7 +129,9 @@ const TENANT_DDL_STATEMENTS = [
     agent_version text,
     av_enabled boolean,
     av_signature text,
-    av_last_scan_at timestamptz
+    av_last_scan_at timestamptz,
+    disk_total bigint,
+    disk_free bigint
   );
   `,
   `
@@ -153,6 +155,8 @@ const TENANT_DDL_STATEMENTS = [
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS total_ram bigint;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS cpu_name text;
   ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS cpu_cores integer;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS disk_total bigint;
+  ALTER TABLE lab_computers ADD COLUMN IF NOT EXISTS disk_free bigint;
   `,
   `
   CREATE TABLE IF NOT EXISTS lab_actions (

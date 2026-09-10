@@ -50,7 +50,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$script:AgentVersion = '1.17.0'
+$script:AgentVersion = '1.18.0'
 $ConfigDir = Join-Path $env:ProgramData 'LabCommandCenter'
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 $PendingPath = Join-Path $ConfigDir 'pending\checkins.json'
@@ -2968,6 +2968,9 @@ try {
         Execute-Action $actObj
       }
 
+      $osDriveName = if ($env:SystemDrive) { $env:SystemDrive.TrimEnd(':') } else { $null }
+      $osDrive = if ($osDriveName) { Get-PSDrive -Name $osDriveName -ErrorAction SilentlyContinue } else { $null }
+
       $user = Get-CurrentUser
       $av = Get-AvStatus
       $fw = Get-FirewallStatus
@@ -2989,6 +2992,10 @@ try {
       if ($hw.totalRAM) { $hbBody.totalRAM = $hw.totalRAM }
       if ($hw.cpuName) { $hbBody.cpuName = $hw.cpuName }
       if ($hw.cpuCores) { $hbBody.cpuCores = $hw.cpuCores }
+      if ($osDrive -and $null -ne $osDrive.Free) {
+        $hbBody.diskFree = [long]$osDrive.Free
+        $hbBody.diskTotal = [long]($osDrive.Used + $osDrive.Free)
+      }
       if ($null -ne $av.enabled) { $hbBody.avEnabled = $av.enabled }
       if ($av.signature) { $hbBody.avSignature = $av.signature }
       if ($av.lastScan) { $hbBody.avLastScanAt = $av.lastScan }

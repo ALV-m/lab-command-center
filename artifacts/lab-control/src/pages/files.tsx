@@ -219,7 +219,7 @@ function ComputerBrowser({
                   </TableCell>
                   <TableCell className="text-right tabular-nums text-muted-foreground">
                     {entry.capacity != null && entry.freeSpace != null
-                      ? `${formatBytes(entry.freeSpace)} free`
+                      ? `${formatBytes(entry.freeSpace)} free of ${formatBytes(entry.capacity)}`
                       : entry.isDir ? "—" : formatBytes(entry.size)}
                   </TableCell>
                   <TableCell className="text-muted-foreground">

@@ -82,7 +82,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge, UsbBadge } from "@/components/badges";
-import { formatDateTime, timeAgo } from "@/lib/format";
+import { formatBytes, formatDateTime, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const STATUS_FILTERS = ["all", "online", "offline", "warning", "locked"] as const;
@@ -306,6 +306,7 @@ function Computers() {
                 <TableHead>Status</TableHead>
                 <TableHead>User</TableHead>
                 <TableHead>USB</TableHead>
+                <TableHead>Storage</TableHead>
                 <TableHead>Last seen</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -345,6 +346,49 @@ function Computers() {
                   </TableCell>
                   <TableCell>
                     <UsbBadge state={computer.usbState} />
+                  </TableCell>
+                  <TableCell>
+                    {computer.diskTotal && computer.diskTotal > 0 ? (
+                      <div className="flex min-w-28 flex-col gap-1">
+                        <div className="flex items-baseline justify-between gap-2 text-xs">
+                          <span className="font-medium tabular-nums">
+                            {formatBytes(computer.diskFree)} free
+                          </span>
+                          <span className="text-muted-foreground tabular-nums">
+                            {formatBytes(computer.diskTotal)}
+                          </span>
+                        </div>
+                        <div
+                          className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                          role="img"
+                          aria-label={`${Math.round(
+                            ((computer.diskTotal - (computer.diskFree ?? 0)) / computer.diskTotal) * 100,
+                          )}% used`}
+                        >
+                          <div
+                            className={cn(
+                              "h-full rounded-full",
+                              (computer.diskTotal - (computer.diskFree ?? 0)) / computer.diskTotal > 0.9
+                                ? "bg-destructive"
+                                : "bg-primary",
+                            )}
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                Math.max(
+                                  0,
+                                  Math.round(
+                                    ((computer.diskTotal - (computer.diskFree ?? 0)) / computer.diskTotal) * 100,
+                                  ),
+                                ),
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <span className="text-muted-foreground tabular-nums">
@@ -750,8 +794,14 @@ function Computers() {
                 <span>{hwTarget.cpuName || "—"}</span>
                 <span className="font-medium text-muted-foreground">Cores (logical)</span>
                 <span>{hwTarget.cpuCores ?? "—"}</span>
-                <span className="font-medium text-muted-foreground">RAM</span>
-                <span>{hwTarget.totalRAM != null ? `${hwTarget.totalRAM} GB` : "—"}</span>
+<span className="font-medium text-muted-foreground">RAM</span>
+                <span>{hwTarget.totalRAM != null ? `${hwTarget.totalRAM} GB` : "-"}</span>
+                <span className="font-medium text-muted-foreground">Storage</span>
+                <span>
+                  {hwTarget.diskTotal && hwTarget.diskTotal > 0
+                    ? `${formatBytes(hwTarget.diskFree ?? 0)} free of ${formatBytes(hwTarget.diskTotal)}`
+                    : "-"}
+                </span>
                 <span className="font-medium text-muted-foreground">IP Address</span>
                 <span className="font-mono">{hwTarget.ipAddress || "—"}</span>
                 <span className="font-medium text-muted-foreground">MAC Address</span>

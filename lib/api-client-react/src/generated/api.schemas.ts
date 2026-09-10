@@ -82,6 +82,10 @@ export interface Computer {
   /** @nullable */
   cpuName: string | null;
   /** @nullable */
+  diskTotal: number | null;
+  /** @nullable */
+  diskFree: number | null;
+  /** @nullable */
   cpuCores: number | null;
   /** @nullable */
   ipAddress: string | null;

@@ -255,8 +255,31 @@ router.post("/agent/heartbeat", async (req, res): Promise<void> => {
       totalRAM: body.data.totalRAM ?? computer.totalRAM,
       cpuName: body.data.cpuName ?? computer.cpuName,
       cpuCores: body.data.cpuCores ?? computer.cpuCores,
+      diskTotal: body.data.diskTotal ?? computer.diskTotal,
+      diskFree: body.data.diskFree ?? computer.diskFree,
     })
     .where(eq(computersTable.id, computer.id));
+
+  if (body.data.avScanState === "scanning") {
+    const started = await db
+      .update(scanResultsTable)
+      .set({ status: "running" })
+      .where(
+        and(
+          eq(scanResultsTable.computerId, computer.id),
+          eq(scanResultsTable.status, "queued"),
+        ),
+      )
+      .returning({ runId: scanResultsTable.runId });
+
+    const runIds = Array.from(new Set(started.map((row) => row.runId)));
+    for (const runId of runIds) {
+      await db
+        .update(scanRunsTable)
+        .set({ status: "running" })
+        .where(and(eq(scanRunsTable.id, runId), eq(scanRunsTable.status, "queued")));
+    }
+  }
 
   for (const event of sessionEvents) {
     await db

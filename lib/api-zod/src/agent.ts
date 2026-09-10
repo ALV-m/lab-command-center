@@ -70,6 +70,8 @@ export const AgentHeartbeatBody = zod.object({
   totalRAM: zod.number().nullish(),
   cpuName: zod.string().max(128).nullish(),
   cpuCores: zod.number().nullish(),
+  diskTotal: zod.number().nullish(),
+  diskFree: zod.number().nullish(),
 });
 
 export const AgentPendingAction = zod.object({

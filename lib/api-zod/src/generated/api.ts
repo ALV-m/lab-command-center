@@ -62,7 +62,9 @@ export const GetComputersResponseItem = zod.object({
   "cpuName": zod.string().nullable(),
   "cpuCores": zod.number().nullable(),
   "ipAddress": zod.string().nullable(),
-  "macAddress": zod.string().nullable()
+  "macAddress": zod.string().nullable(),
+  "diskTotal": zod.number().nullable(),
+  "diskFree": zod.number().nullable()
 })
 export const GetComputersResponse = zod.array(GetComputersResponseItem)
 

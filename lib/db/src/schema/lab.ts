@@ -42,6 +42,8 @@ export const computersTable = pgTable("lab_computers", {
   totalRAM: bigint("total_ram", { mode: "number" }),
   cpuName: text("cpu_name"),
   cpuCores: integer("cpu_cores"),
+  diskTotal: bigint("disk_total", { mode: "number" }),
+  diskFree: bigint("disk_free", { mode: "number" }),
 });
 
 export const actionsTable = pgTable("lab_actions", {
